@@ -64,6 +64,23 @@ target/release/los --lat 48.7766298 --lon -121.8144732
 Elevation at (48.7766298, -121.8144732): 3281.13 m (10764.87 ft)
 ```
 
+## Testing
+
+Run all tests:
+
+```bash
+cargo test
+```
+
+### Test Data
+
+Integration tests use a small local GeoTIFF fixture located in `tests/data/`.
+
+These tests validate:
+- Opening DEM datasets via different readers
+- Elevation lookup at known coordinates
+- Out-of-bounds behavior
+
 ## Architecture
 
 The system is designed to separate *where DEM data comes from* from *how it is read*.

@@ -13,6 +13,9 @@ geo-types = "0.7"
 geotiff = "0.1.0"
 thiserror = "2"
 
+[dev-dependencies]
+rstest = "0.26"
+
 # [features]
 # default = []
 # gdal = ["dep:gdal"]

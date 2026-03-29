@@ -9,7 +9,8 @@ impl DemReader for GdalReader {
         let dataset = match desc.location {
             DemLocation::LocalPath(ref path) => gdal::Dataset::open(path),
             DemLocation::RemoteUrl(ref url) => gdal::Dataset::open(url),
-        }.map_err(|e| {
+        }
+        .map_err(|e| {
             DemReaderError::Gdal(format!(
                 "Could not open {} due to: {}",
                 match desc.location {
@@ -28,7 +29,10 @@ impl DemReader for GdalReader {
                 )));
             }
         };
-        Ok(GdalDemHandle { dataset, geo_transform })
+        Ok(GdalDemHandle {
+            dataset,
+            geo_transform,
+        })
     }
 }
 
@@ -55,6 +59,13 @@ impl DemHandle for GdalDemHandle {
             }
         };
         let (px, py) = coord_to_px(lon, lat, &self.geo_transform);
+        let (width, height) = self.dataset.raster_size();
+        if px < 0 || py < 0 || (px as usize) >= width || (py as usize) >= height {
+            return Err(DemReaderError::OutOfBounds(format!(
+                "Coordinates ({}, {}) are out of bounds for dataset",
+                lat, lon,
+            )));
+        }
         let buf = match band.read_as::<f32>((px, py), (1, 1), (1, 1), None) {
             Ok(buf) => buf,
             Err(e) => {
