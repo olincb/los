@@ -1,6 +1,5 @@
 use crate::reader::{DemHandle, DemReader, DemReaderError};
 use crate::source::{DemSource, DemSourceError};
-use geo_types::Coord;
 
 #[derive(thiserror::Error, Debug)]
 pub enum ElevationServiceError {
@@ -28,7 +27,7 @@ where
         //     max_lon: lon,
         // };
 
-        let desc = self.source.get_dem_for_point(&Coord { x: lat, y: lon })?;
+        let desc = self.source.get_dem_for_point(lat,  lon )?;
         let handle = self.reader.open(&desc)?;
         let elev = handle.elevation_at(lat, lon)?;
 

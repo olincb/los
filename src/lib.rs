@@ -4,4 +4,4 @@ pub mod source;
 
 pub use reader::{DemHandle, DemReader, Elevation, GdalReader, GeoTiffReader};
 pub use service::ElevationService;
-pub use source::{Bbox, DemDescriptor, DemSource};
+pub use source::{Bbox, DemDescriptor, DemSource, DemLocation, UsgsSource, OpenTopoSource};

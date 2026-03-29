@@ -3,18 +3,27 @@ use geotiff;
 use std::fs::File;
 
 use crate::reader::{DemHandle, DemReader, DemReaderError};
-use crate::source::{Bbox, DemDescriptor};
+use crate::source::{Bbox, DemDescriptor, DemLocation};
 
 pub struct GeoTiffReader;
 
 impl DemReader for GeoTiffReader {
     fn open(&self, desc: &DemDescriptor) -> Result<impl DemHandle, DemReaderError> {
-        let file = match File::open(&desc.path) {
+        let filepath = match desc.location {
+            DemLocation::LocalPath(ref path) => path,
+            DemLocation::RemoteUrl(ref url) => {
+                return Err(DemReaderError::GeoTiff(format!(
+                    "GeoTiffReader does not support URLs, but got {}",
+                    url
+                )));
+            }
+        };
+        let file = match File::open(filepath) {
             Ok(file) => file,
             Err(e) => {
                 return Err(DemReaderError::GeoTiff(format!(
                     "Could not open {} due to: {}",
-                    desc.path.to_string_lossy(),
+                    filepath.to_string_lossy(),
                     e,
                 )));
             }
@@ -24,7 +33,7 @@ impl DemReader for GeoTiffReader {
             Err(e) => {
                 return Err(DemReaderError::GeoTiff(format!(
                     "Could not read {} as Tiff due to: {}",
-                    desc.path.to_string_lossy(),
+                    filepath.to_string_lossy(),
                     e,
                 )));
             }

@@ -1,5 +1,4 @@
 use std::path::PathBuf;
-use geo_types::Coord;
 
 // TODO: just use a point instead of a bbox for now
 #[derive(Debug, Clone, Copy)]
@@ -10,10 +9,15 @@ pub struct Bbox {
     pub max_lon: f64,
 }
 
-// TODO: in-memory option?
+#[derive(Debug, Clone)]
+pub enum DemLocation {
+    LocalPath(PathBuf),
+    RemoteUrl(String),
+}
+
 #[derive(Debug, Clone)]
 pub struct DemDescriptor {
-    pub path: PathBuf,
+    pub location: DemLocation,
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -28,5 +32,5 @@ pub enum DemSourceError {
 
 pub trait DemSource {
     // fn get_dem_for_bbox(&self, bbox: &Bbox) -> Result<DemDescriptor, DemSourceError>;
-    fn get_dem_for_point(&self, coord: &Coord<f64>) -> Result<DemDescriptor, DemSourceError>;
+    fn get_dem_for_point(&self, lat: f64, lon: f64) -> Result<DemDescriptor, DemSourceError>;
 }
