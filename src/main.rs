@@ -1,8 +1,58 @@
 use los::source::Location;
 use los::{DemHandle, DemReader, DemSource, GdalReader, GeoTiffReader, UsgsSource};
+use los::source::topo::usgs::UsgsTopoMapSource;
 
-use clap::{Parser, ValueEnum};
+use clap::{Parser, ValueEnum, Subcommand};
 use std::path::PathBuf;
+
+#[derive(Subcommand, Debug)]
+enum Commands {
+    /// Find elevation at a given lat/lon using a specified reader and source.
+    Elevation {
+        /// Type of reader to use
+        #[arg(short, long, default_value = "gdal")]
+        reader_type: ReaderType,
+
+        /// Source for fetching the DEM (ignored if dem_path is provided)
+        #[arg(short, long, default_value = "usgs")]
+        source_type: SourceType,
+
+        /// Path to a local GeoTIFF file to bypass using an automatic source
+        /// (overrides source_type if provided)
+        #[arg(short, long, conflicts_with = "url_dem")]
+        local_dem: Option<String>,
+
+        /// Remote URL to a DEM file to bypass using an automatic source
+        /// (overrides source_type if provided)
+        #[arg(short, long, conflicts_with = "local_dem")]
+        url_dem: Option<String>,
+
+        /// Latitude of the point to query (e.g., 48.7766298)
+        #[arg(long, allow_hyphen_values = true, value_parser = lat_validator)]
+        lat: f64,
+
+        /// Longitude of the point to query (e.g., -121.8144732)
+        #[arg(long, allow_hyphen_values = true, value_parser = lon_validator)]
+        lon: f64,
+    },
+    Topo {
+        /// Latitude of the point to retrieve the topo map for (e.g., 48.7766298)
+        #[arg(long, allow_hyphen_values = true, value_parser = lat_validator)]
+        lat: f64,
+
+        /// Longitude of the point to retrieve the topo map for (e.g., -121.8144732)
+        #[arg(long, allow_hyphen_values = true, value_parser = lon_validator)]
+        lon: f64,
+
+    },
+}
+
+
+#[derive(Parser)]
+struct Cli {
+    #[command(subcommand)]
+    command: Commands,
+}
 
 #[derive(Debug, Clone, ValueEnum)]
 #[clap(rename_all = "lower")]
@@ -42,43 +92,16 @@ fn lon_validator(s: &str) -> Result<f64, String> {
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct CliArgs {
-    /// Type of reader to use
-    #[arg(short, long, default_value = "gdal")]
-    reader_type: ReaderType,
-
-    /// Source for fetching the DEM (ignored if dem_path is provided)
-    #[arg(short, long, default_value = "usgs")]
-    source_type: SourceType,
-
-    /// Path to a local GeoTIFF file to bypass using an automatic source
-    /// (overrides source_type if provided)
-    #[arg(short, long, conflicts_with = "url_dem")]
-    local_dem: Option<String>,
-
-    /// Remote URL to a DEM file to bypass using an automatic source
-    /// (overrides source_type if provided)
-    #[arg(short, long, conflicts_with = "local_dem")]
-    url_dem: Option<String>,
-
-    /// Latitude of the point to query (e.g., 48.7766298)
-    #[arg(long, allow_hyphen_values = true, value_parser = lat_validator)]
-    lat: f64,
-
-    /// Longitude of the point to query (e.g., -121.8144732)
-    #[arg(long, allow_hyphen_values = true, value_parser = lon_validator)]
-    lon: f64,
 }
 
-fn main() -> anyhow::Result<()> {
-    let CliArgs {
-        reader_type,
-        source_type,
-        local_dem,
-        url_dem,
-        lat,
-        lon,
-    } = CliArgs::parse();
-
+fn handle_elevation_command(
+    reader_type: ReaderType,
+    source_type: SourceType,
+    local_dem: Option<String>,
+    url_dem: Option<String>,
+    lat: f64,
+    lon: f64,
+) -> anyhow::Result<()> {
     let dem_descriptor = match (local_dem, url_dem) {
         (Some(local_path), None) => Location::LocalPath(PathBuf::from(local_path)),
         (None, Some(remote_url)) => Location::RemoteUrl(remote_url),
@@ -116,4 +139,24 @@ fn main() -> anyhow::Result<()> {
         elevation.height_m * 3.28084
     );
     Ok(())
+}
+
+fn handle_topo_command(lat: f64, lon: f64) -> anyhow::Result<()> {
+    let _source = UsgsTopoMapSource::fetch()?;
+    Ok(())
+}
+
+
+fn main() -> anyhow::Result<()> {
+    match Cli::parse().command {
+        Commands::Elevation {
+            reader_type,
+            source_type,
+            local_dem,
+            url_dem,
+            lat,
+            lon,
+        } => handle_elevation_command(reader_type, source_type, local_dem, url_dem, lat, lon),
+        Commands::Topo { lat, lon } => handle_topo_command(lat, lon),
+    }
 }

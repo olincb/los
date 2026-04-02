@@ -1,5 +1,5 @@
-use crate::DemSource;
 /// USGS 1/3 Arc-Second DEM implementation for retrieving elevation data.
+use crate::DemSource;
 use crate::source::{DemSourceError, Location};
 
 pub struct UsgsSource;

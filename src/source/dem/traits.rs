@@ -1,11 +1,9 @@
-use crate::source::Location;
+use crate::source::{Location, SourceError};
 
 #[derive(thiserror::Error, Debug)]
 pub enum DemSourceError {
-    #[error("network error: {0}")]
-    Network(String),
-    #[error("I/O error: {0}")]
-    Io(#[from] std::io::Error),
+    #[error(transparent)]
+    Source(#[from] SourceError),
     #[error("bbox out of coverage area")]
     OutOfCoverage,
 }
