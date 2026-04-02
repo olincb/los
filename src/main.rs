@@ -1,7 +1,5 @@
-use los::{
-    DemDescriptor, DemHandle, DemLocation, DemReader, DemSource, GdalReader, GeoTiffReader,
-    UsgsSource,
-};
+use los::source::Location;
+use los::{DemHandle, DemReader, DemSource, GdalReader, GeoTiffReader, UsgsSource};
 
 use clap::{Parser, ValueEnum};
 use std::path::PathBuf;
@@ -82,12 +80,8 @@ fn main() -> anyhow::Result<()> {
     } = CliArgs::parse();
 
     let dem_descriptor = match (local_dem, url_dem) {
-        (Some(local_path), None) => DemDescriptor {
-            location: DemLocation::LocalPath(PathBuf::from(local_path)),
-        },
-        (None, Some(remote_url)) => DemDescriptor {
-            location: DemLocation::RemoteUrl(remote_url),
-        },
+        (Some(local_path), None) => Location::LocalPath(PathBuf::from(local_path)),
+        (None, Some(remote_url)) => Location::RemoteUrl(remote_url),
         (Some(_), Some(_)) => {
             return Err(anyhow::anyhow!(
                 "Cannot specify both local_dem and url_dem. Please choose one."

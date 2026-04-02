@@ -1,4 +1,5 @@
-use los::{DemDescriptor, DemHandle, DemLocation, DemReader, DemReaderError};
+use los::source::Location;
+use los::{DemHandle, DemReader, DemReaderError};
 use std::path::PathBuf;
 
 pub const SAMPLE_POINT_1: (f64, f64, f64) = (40.2468642, -105.5959595, 3897.397);
@@ -13,10 +14,8 @@ pub fn fixture_path(name: &str) -> PathBuf {
         .join(name)
 }
 
-pub fn local_dem_descriptor(name: &str) -> DemDescriptor {
-    DemDescriptor {
-        location: DemLocation::LocalPath(fixture_path(name)),
-    }
+pub fn local_dem_descriptor(name: &str) -> Location {
+    Location::LocalPath(fixture_path(name))
 }
 
 pub fn assert_reader_returns_expected_elevation<R: DemReader>(

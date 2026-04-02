@@ -1,7 +1,5 @@
-pub mod opentopo;
-pub mod traits;
-pub mod usgs;
+pub mod dem;
+mod traits;
 
-pub use opentopo::OpenTopoSource;
-pub use traits::{Bbox, DemDescriptor, DemSource, DemSourceError, DemLocation};
-pub use usgs::UsgsSource;
+pub use dem::{DemSource, DemSourceError, OpenTopoSource, UsgsSource};
+pub use traits::Location;

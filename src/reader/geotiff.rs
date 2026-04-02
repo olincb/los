@@ -2,16 +2,17 @@ use geo_types::Coord;
 use geotiff;
 use std::fs::File;
 
+use crate::Bbox;
 use crate::reader::{DemHandle, DemReader, DemReaderError};
-use crate::source::{Bbox, DemDescriptor, DemLocation};
+use crate::source::Location;
 
 pub struct GeoTiffReader;
 
 impl DemReader for GeoTiffReader {
-    fn open(&self, desc: &DemDescriptor) -> Result<impl DemHandle, DemReaderError> {
-        let filepath = match desc.location {
-            DemLocation::LocalPath(ref path) => path,
-            DemLocation::RemoteUrl(ref url) => {
+    fn open(&self, loc: &Location) -> Result<impl DemHandle, DemReaderError> {
+        let filepath = match loc {
+            Location::LocalPath(path) => path,
+            Location::RemoteUrl(url) => {
                 return Err(DemReaderError::GeoTiff(format!(
                     "GeoTiffReader does not support URLs, but got {}",
                     url
@@ -39,11 +40,22 @@ impl DemReader for GeoTiffReader {
             }
         };
         let bounds = reader.model_extent();
-        let Coord { x: min_lon, y: min_lat } = bounds.min();
-        let Coord { x: max_lon, y: max_lat } = bounds.max();
+        let Coord {
+            x: min_lon,
+            y: min_lat,
+        } = bounds.min();
+        let Coord {
+            x: max_lon,
+            y: max_lat,
+        } = bounds.max();
         Ok(GeoTiffDemHandle {
             reader,
-            bbox: Bbox { min_lon, min_lat, max_lon, max_lat},
+            bbox: Bbox {
+                min_lon,
+                min_lat,
+                max_lon,
+                max_lat,
+            },
         })
     }
 }

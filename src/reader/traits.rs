@@ -1,3 +1,5 @@
+use crate::source::Location;
+
 #[derive(Debug, Clone)]
 pub struct Elevation {
     pub height_m: f64,
@@ -14,11 +16,9 @@ pub enum DemReaderError {
 }
 
 pub trait DemReader {
-    fn open(&self, desc: &crate::source::DemDescriptor)
-        -> Result<impl DemHandle, DemReaderError>;
+    fn open(&self, loc: &Location) -> Result<impl DemHandle, DemReaderError>;
 }
 
 pub trait DemHandle {
-    fn elevation_at(&self, lat: f64, lon: f64)
-        -> Result<Elevation, DemReaderError>;
+    fn elevation_at(&self, lat: f64, lon: f64) -> Result<Elevation, DemReaderError>;
 }

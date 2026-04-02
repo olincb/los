@@ -1,21 +1,21 @@
 use crate::reader::{DemHandle, DemReader, DemReaderError};
-use crate::source::{DemDescriptor, DemLocation};
+use crate::source::Location;
 
 pub struct GdalReader;
 
 impl DemReader for GdalReader {
-    fn open(&self, desc: &DemDescriptor) -> Result<impl DemHandle, DemReaderError> {
+    fn open(&self, loc: &Location) -> Result<impl DemHandle, DemReaderError> {
         // GDAL can handle both local paths and remote URLs.
-        let dataset = match desc.location {
-            DemLocation::LocalPath(ref path) => gdal::Dataset::open(path),
-            DemLocation::RemoteUrl(ref url) => gdal::Dataset::open(url),
+        let dataset = match loc {
+            Location::LocalPath(path) => gdal::Dataset::open(path),
+            Location::RemoteUrl(url) => gdal::Dataset::open(url),
         }
         .map_err(|e| {
             DemReaderError::Gdal(format!(
                 "Could not open {} due to: {}",
-                match desc.location {
-                    DemLocation::LocalPath(ref path) => path.to_string_lossy(),
-                    DemLocation::RemoteUrl(ref url) => url.as_str().into(),
+                match loc {
+                    Location::LocalPath(path) => path.to_string_lossy(),
+                    Location::RemoteUrl(url) => url.as_str().into(),
                 },
                 e
             ))

@@ -27,7 +27,7 @@ where
         //     max_lon: lon,
         // };
 
-        let desc = self.source.get_dem_for_point(lat,  lon )?;
+        let desc = self.source.get_dem_for_point(lat, lon)?;
         let handle = self.reader.open(&desc)?;
         let elev = handle.elevation_at(lat, lon)?;
 
