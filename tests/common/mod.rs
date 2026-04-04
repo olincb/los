@@ -1,5 +1,5 @@
 use los::source::Location;
-use los::{DemHandle, DemReader, DemReaderError};
+use los::{DemReader, DemReaderError};
 use std::path::PathBuf;
 
 pub const SAMPLE_POINT_1: (f64, f64, f64) = (40.2468642, -105.5959595, 3897.397);
@@ -30,10 +30,10 @@ pub fn assert_reader_returns_expected_elevation<R: DemReader>(
         .elevation_at(lat, lon)
         .expect("Failed to get elevation");
     assert!(
-        (elevation.height_m - expected_elevation).abs() < 0.1,
+        (elevation.m - expected_elevation).abs() < 0.1,
         "Expected elevation around {}, got {}",
         expected_elevation,
-        elevation.height_m
+        elevation.m
     );
 }
 

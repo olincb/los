@@ -1,9 +1,5 @@
+use crate::Elevation;
 use crate::source::Location;
-
-#[derive(Debug, Clone)]
-pub struct Elevation {
-    pub height_m: f64,
-}
 
 #[derive(thiserror::Error, Debug)]
 pub enum DemReaderError {
@@ -16,7 +12,7 @@ pub enum DemReaderError {
 }
 
 pub trait DemReader {
-    fn open(&self, loc: &Location) -> Result<impl DemHandle, DemReaderError>;
+    fn open(&self, loc: &Location) -> Result<Box<dyn DemHandle>, DemReaderError>;
 }
 
 pub trait DemHandle {

@@ -4,4 +4,4 @@ pub mod traits;
 
 pub use gdal::GdalReader;
 pub use geotiff::GeoTiffReader;
-pub use traits::{DemHandle, DemReader, DemReaderError, Elevation};
+pub use traits::{DemHandle, DemReader, DemReaderError};

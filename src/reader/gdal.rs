@@ -1,10 +1,11 @@
+use crate::Elevation;
 use crate::reader::{DemHandle, DemReader, DemReaderError};
 use crate::source::Location;
 
 pub struct GdalReader;
 
 impl DemReader for GdalReader {
-    fn open(&self, loc: &Location) -> Result<impl DemHandle, DemReaderError> {
+    fn open(&self, loc: &Location) -> Result<Box<dyn DemHandle>, DemReaderError> {
         // GDAL can handle both local paths and remote URLs.
         let dataset = match loc {
             Location::LocalPath(path) => gdal::Dataset::open(path),
@@ -29,10 +30,10 @@ impl DemReader for GdalReader {
                 )));
             }
         };
-        Ok(GdalDemHandle {
+        Ok(Box::new(GdalDemHandle {
             dataset,
             geo_transform,
-        })
+        }))
     }
 }
 
@@ -48,7 +49,7 @@ fn coord_to_px(lon: f64, lat: f64, gt: &[f64; 6]) -> (isize, isize) {
 }
 
 impl DemHandle for GdalDemHandle {
-    fn elevation_at(&self, lat: f64, lon: f64) -> Result<super::Elevation, DemReaderError> {
+    fn elevation_at(&self, lat: f64, lon: f64) -> Result<Elevation, DemReaderError> {
         let band = match self.dataset.rasterband(1) {
             Ok(band) => band,
             Err(e) => {
@@ -75,8 +76,6 @@ impl DemHandle for GdalDemHandle {
                 )));
             }
         };
-        Ok(super::Elevation {
-            height_m: buf.data()[0] as f64,
-        })
+        Ok(Elevation::from_m(buf.data()[0] as f64))
     }
 }

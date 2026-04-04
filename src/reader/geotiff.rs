@@ -2,14 +2,14 @@ use geo_types::Coord;
 use geotiff;
 use std::fs::File;
 
-use crate::Bbox;
 use crate::reader::{DemHandle, DemReader, DemReaderError};
 use crate::source::Location;
+use crate::{Bbox, Elevation};
 
 pub struct GeoTiffReader;
 
 impl DemReader for GeoTiffReader {
-    fn open(&self, loc: &Location) -> Result<impl DemHandle, DemReaderError> {
+    fn open(&self, loc: &Location) -> Result<Box<dyn DemHandle>, DemReaderError> {
         let filepath = match loc {
             Location::LocalPath(path) => path,
             Location::RemoteUrl(url) => {
@@ -48,7 +48,7 @@ impl DemReader for GeoTiffReader {
             x: max_lon,
             y: max_lat,
         } = bounds.max();
-        Ok(GeoTiffDemHandle {
+        Ok(Box::new(GeoTiffDemHandle {
             reader,
             bbox: Bbox {
                 min_lon,
@@ -56,7 +56,7 @@ impl DemReader for GeoTiffReader {
                 max_lon,
                 max_lat,
             },
-        })
+        }))
     }
 }
 
@@ -66,7 +66,7 @@ pub struct GeoTiffDemHandle {
 }
 
 impl DemHandle for GeoTiffDemHandle {
-    fn elevation_at(&self, lat: f64, lon: f64) -> Result<super::Elevation, DemReaderError> {
+    fn elevation_at(&self, lat: f64, lon: f64) -> Result<Elevation, DemReaderError> {
         match (lat, self.bbox.min_lat, self.bbox.max_lat) {
             (l, min, _) if l < min => {
                 return Err(DemReaderError::OutOfBounds(format!(
@@ -99,7 +99,7 @@ impl DemHandle for GeoTiffDemHandle {
         }
         let point = Coord { x: lon, y: lat };
         match self.reader.get_value_at(&point, 0) {
-            Some(el) => Ok(super::Elevation { height_m: el }),
+            Some(el) => Ok(Elevation::from_m(el)),
             None => Err(DemReaderError::GeoTiff(format!(
                 "Could not read elevation at point {}, {} from GeoTiff",
                 point.x, point.y

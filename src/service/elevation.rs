@@ -1,5 +1,6 @@
-use crate::reader::{DemHandle, DemReader, DemReaderError};
-use crate::source::{DemSource, DemSourceError};
+use crate::Elevation;
+use crate::reader::{DemReader, DemReaderError};
+use crate::source::{DemSource, DemSourceError, Location};
 
 #[derive(thiserror::Error, Debug)]
 pub enum ElevationServiceError {
@@ -9,28 +10,21 @@ pub enum ElevationServiceError {
     Reader(#[from] DemReaderError),
 }
 
-pub struct ElevationService<S, R> {
-    pub source: S,
-    pub reader: R,
+pub struct ElevationService {
+    pub source: Box<dyn DemSource>,
+    pub reader: Box<dyn DemReader>,
+    pub dem_location: Option<Location>,
 }
 
-impl<S, R> ElevationService<S, R>
-where
-    S: DemSource,
-    R: DemReader,
-{
-    pub fn elevation_at(&self, lat: f64, lon: f64) -> Result<f64, ElevationServiceError> {
-        // let bbox = Bbox {
-        //     min_lat: lat,
-        //     max_lat: lat,
-        //     min_lon: lon,
-        //     max_lon: lon,
-        // };
-
-        let desc = self.source.get_dem_for_point(lat, lon)?;
-        let handle = self.reader.open(&desc)?;
+impl ElevationService {
+    pub fn elevation_at(&self, lat: f64, lon: f64) -> Result<Elevation, ElevationServiceError> {
+        let dem_location = match &self.dem_location {
+            Some(location) => location,
+            None => &self.source.get_dem_for_point(lat, lon)?,
+        };
+        let handle = self.reader.open(dem_location)?;
         let elev = handle.elevation_at(lat, lon)?;
 
-        Ok(elev.height_m)
+        Ok(elev)
     }
 }
