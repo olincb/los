@@ -1,8 +1,8 @@
 use los::source::Location;
+use los::source::topo::{TopoSource, UsgsTopoMapSource};
 use los::{DemHandle, DemReader, DemSource, GdalReader, GeoTiffReader, UsgsSource};
-use los::source::topo::usgs::UsgsTopoMapSource;
 
-use clap::{Parser, ValueEnum, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
 
 #[derive(Subcommand, Debug)]
@@ -43,10 +43,8 @@ enum Commands {
         /// Longitude of the point to retrieve the topo map for (e.g., -121.8144732)
         #[arg(long, allow_hyphen_values = true, value_parser = lon_validator)]
         lon: f64,
-
     },
 }
-
 
 #[derive(Parser)]
 struct Cli {
@@ -91,8 +89,7 @@ fn lon_validator(s: &str) -> Result<f64, String> {
 /// CLI for finding elevation at a given lat/lon using a specified reader and source.
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
-struct CliArgs {
-}
+struct CliArgs {}
 
 fn handle_elevation_command(
     reader_type: ReaderType,
@@ -142,10 +139,18 @@ fn handle_elevation_command(
 }
 
 fn handle_topo_command(lat: f64, lon: f64) -> anyhow::Result<()> {
-    let _source = UsgsTopoMapSource::fetch()?;
+    let source = UsgsTopoMapSource::fetch()?;
+    let map_descriptor = source.get_map_descriptor(lat, lon)?;
+    let map_path = source.fetch_map(&map_descriptor)?;
+    println!(
+        "Topo map {}, for ({}, {}), is located at: {}",
+        map_descriptor.name.as_deref().unwrap_or(""),
+        lat,
+        lon,
+        map_path.to_string_lossy()
+    );
     Ok(())
 }
-
 
 fn main() -> anyhow::Result<()> {
     match Cli::parse().command {

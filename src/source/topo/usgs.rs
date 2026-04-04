@@ -1,6 +1,7 @@
 /// USGS GeoPDF topographic map retrieval
 use super::traits::{TopoMapDescriptor, TopoSource};
-use crate::source::SourceError;
+use crate::Bbox;
+use crate::source::{Location, SourceError};
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
@@ -34,7 +35,6 @@ fn cache_directory() -> &'static Option<PathBuf> {
 }
 
 impl UsgsTopoMapSource {
-
     pub fn fetch() -> Result<Self, SourceError> {
         // TODO: optional flag to force refresh of metadata
         let cache_dir = cache_directory().as_ref().ok_or_else(|| {
@@ -63,7 +63,8 @@ impl UsgsTopoMapSource {
                 min_lat, max_lat
             )",
             [],
-        ).map_err(|e| {
+        )
+        .map_err(|e| {
             SourceError::Data(format!(
                 "Failed to create map_tiles R-tree table in SQLite database: {e}"
             ))
@@ -74,7 +75,8 @@ impl UsgsTopoMapSource {
                 product_url TEXT
             )",
             [],
-        ).map_err(|e| {
+        )
+        .map_err(|e| {
             SourceError::Data(format!(
                 "Failed to create mapmeta table in SQLite database: {e}"
             ))
@@ -112,14 +114,16 @@ impl UsgsTopoMapSource {
             let record = result.map_err(|e| {
                 SourceError::Data(format!("Failed to parse USGS metadata CSV record: {e}"))
             })?;
-            transaction.execute(
-                "INSERT INTO map_meta (map_name, product_url) VALUES (?1, ?2)",
-                rusqlite::params![ &record.map_name, &record.product_url],
-            ).map_err(|e| {
-                SourceError::Data(format!(
-                    "Failed to insert USGS metadata record into SQLite database: {e}"
-                ))
-            })?;
+            transaction
+                .execute(
+                    "INSERT INTO map_meta (map_name, product_url) VALUES (?1, ?2)",
+                    rusqlite::params![&record.map_name, &record.product_url],
+                )
+                .map_err(|e| {
+                    SourceError::Data(format!(
+                        "Failed to insert USGS metadata record into SQLite database: {e}"
+                    ))
+                })?;
             let rowid = transaction.last_insert_rowid();
             transaction.execute(
                 "INSERT INTO map_tiles (id, min_lon, max_lon, min_lat, max_lat) VALUES (?1, ?2, ?3, ?4, ?5)",
@@ -142,11 +146,70 @@ impl UsgsTopoMapSource {
     }
 }
 
-
 impl TopoSource for UsgsTopoMapSource {
-    fn get_map_for_point(&self, lat: f64, lon: f64) -> Result<TopoMapDescriptor, SourceError> {
-        // TODO: look up lat/lon in csv to find matching map
-        // TODO: return map descriptor with URL to GeoPDF
-        panic!("USGS topo map retrieval not implemented yet");
+    fn get_map_descriptor(&self, lat: f64, lon: f64) -> Result<TopoMapDescriptor, SourceError> {
+        if !self.sqlite_path.exists() {
+            return Err(SourceError::Data(
+                "USGS metadata database not found. Recreate UsgsTopoMapSource via fetch.".into(),
+            ));
+        }
+        let conn = rusqlite::Connection::open(&self.sqlite_path).map_err(|e| {
+            SourceError::Data(format!(
+                "Failed to connect to SQLite database for USGS metadata: {e}"
+            ))
+        })?;
+        conn.query_one(
+            "SELECT m.map_name, m.product_url, t.min_lon, t.max_lon, t.min_lat, t.max_lat
+             FROM map_tiles t
+             JOIN map_meta m
+             ON t.id = m.rowid
+             WHERE t.min_lon <= ? AND t.max_lon >= ? AND t.min_lat <= ? AND t.max_lat >= ?;
+            ",
+            rusqlite::params![lon, lon, lat, lat],
+            |row| {
+                Ok(TopoMapDescriptor {
+                    name: row.get(0).ok(),
+                    location: Location::RemoteUrl(row.get(1)?),
+                    bbox: Bbox {
+                        min_lon: row.get(2)?,
+                        max_lon: row.get(3)?,
+                        min_lat: row.get(4)?,
+                        max_lat: row.get(5)?,
+                    },
+                })
+            },
+        )
+        .map_err(|e| {
+            SourceError::Data(format!(
+                "Failed to query SQLite database for USGS metadata: {e}"
+            ))
+        })
+    }
+
+    fn fetch_map(&self, descriptor: &TopoMapDescriptor) -> Result<PathBuf, SourceError> {
+        // TODO: allow force fetch
+        match &descriptor.location {
+            Location::LocalPath(path) => Ok(path.clone()),
+            Location::RemoteUrl(url) => {
+                let cache_dir = cache_directory().as_ref().ok_or_else(|| {
+                    SourceError::Data("Unable to determine cache directory for USGS maps".into())
+                })?;
+                std::fs::create_dir_all(cache_dir)?;
+                let filename = url
+                    .split("/")
+                    .last()
+                    .ok_or_else(|| SourceError::Data(format!("Invalid URL for USGS map: {url}")))?;
+                let local_path = cache_dir.join(filename);
+                if local_path.exists() {
+                    return Ok(local_path);
+                }
+                let resp = ureq::get(url).call().map_err(|e| {
+                    SourceError::Network(format!("Failed to download USGS map from {url}: {e}"))
+                })?;
+                let mut file = std::fs::File::create(&local_path)?;
+                std::io::copy(&mut resp.into_body().as_reader(), &mut file)?;
+                Ok(local_path)
+            }
+        }
     }
 }
