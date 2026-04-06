@@ -12,16 +12,26 @@ const USGS_LON_MIN: f64 = -180.0;
 const USGS_LON_MAX: f64 = 180.0;
 
 fn in_bounds(lat: f64, lon: f64) -> bool {
+    // TODO: more precise bounds checking based on actual tile coverage
     (USGS_LAT_MIN..=USGS_LAT_MAX).contains(&lat) && (USGS_LON_MIN..=USGS_LON_MAX).contains(&lon)
 }
 
 impl DemSource for UsgsSource {
     fn get_dem_for_point(&self, lat: f64, lon: f64) -> Result<Location, DemSourceError> {
-        // TODO: more precise bounds checking based on actual tile coverage
         if !in_bounds(lat, lon) {
             return Err(DemSourceError::OutOfCoverage);
         }
+        Ok(Location::RemoteUrl(USGS_13_VRT_URL.into()))
+    }
 
+    fn get_dem_for_bbox(&self, bbox: &crate::Bbox) -> Result<Location, DemSourceError> {
+        if !in_bounds(bbox.min_lat, bbox.min_lon)
+            || !in_bounds(bbox.min_lat, bbox.max_lon)
+            || !in_bounds(bbox.max_lat, bbox.min_lon)
+            || !in_bounds(bbox.max_lat, bbox.max_lon)
+        {
+            return Err(DemSourceError::OutOfCoverage);
+        }
         Ok(Location::RemoteUrl(USGS_13_VRT_URL.into()))
     }
 }

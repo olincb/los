@@ -6,6 +6,12 @@ pub struct Bbox {
     pub max_lon: f64,
 }
 
+impl Bbox {
+    pub fn contains(&self, lat: f64, lon: f64) -> bool {
+        lat >= self.min_lat && lat <= self.max_lat && lon >= self.min_lon && lon <= self.max_lon
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Elevation {
     pub m: f64,
