@@ -81,10 +81,10 @@ impl PrefetchedRegion {
     }
 }
 
-impl GdalDemHandle {
+impl DemHandle for GdalDemHandle {
     /// Prime the Handle for multiple upcoming elevation queries within the
     /// specified bounding box by reading the relevant raster data into memory.
-    pub fn prefetch_region(&mut self, bbox: Bbox) -> Result<(), DemReaderError> {
+    fn prefetch_region(&mut self, bbox: Bbox) -> Result<(), DemReaderError> {
         let band = match self.dataset.rasterband(1) {
             Ok(band) => band,
             Err(e) => {
@@ -120,9 +120,7 @@ impl GdalDemHandle {
         });
         Ok(())
     }
-}
 
-impl DemHandle for GdalDemHandle {
     fn elevation_at(&self, lat: f64, lon: f64) -> Result<Elevation, DemReaderError> {
         if let Some(elev) = self
             .cache

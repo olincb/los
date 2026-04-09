@@ -1,5 +1,5 @@
-use crate::Elevation;
 use crate::source::Location;
+use crate::{Bbox, Elevation};
 
 #[derive(thiserror::Error, Debug)]
 pub enum DemReaderError {
@@ -17,4 +17,7 @@ pub trait DemReader {
 
 pub trait DemHandle {
     fn elevation_at(&self, lat: f64, lon: f64) -> Result<Elevation, DemReaderError>;
+    fn prefetch_region(&mut self, _bbox: Bbox) -> Result<(), DemReaderError> {
+        Ok(())
+    }
 }

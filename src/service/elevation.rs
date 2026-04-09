@@ -1,6 +1,6 @@
-use crate::Elevation;
-use crate::reader::{DemReader, DemReaderError};
+use crate::reader::{DemHandle, DemReader, DemReaderError};
 use crate::source::{DemSource, DemSourceError, Location};
+use crate::{Bbox, Elevation};
 
 #[derive(thiserror::Error, Debug)]
 pub enum ElevationServiceError {
@@ -14,17 +14,52 @@ pub struct ElevationService {
     pub source: Box<dyn DemSource>,
     pub reader: Box<dyn DemReader>,
     pub dem_location: Option<Location>,
+    handle: Option<Box<dyn DemHandle>>,
 }
 
 impl ElevationService {
+    pub fn new(
+        source: Box<dyn DemSource>,
+        reader: Box<dyn DemReader>,
+        dem_location: Option<Location>,
+    ) -> Self {
+        ElevationService {
+            source,
+            reader,
+            dem_location,
+            handle: None,
+        }
+    }
+
     pub fn elevation_at(&self, lat: f64, lon: f64) -> Result<Elevation, ElevationServiceError> {
+        if let Some(handle) = &self.handle {
+            return Ok(handle.elevation_at(lat, lon)?);
+        }
         let dem_location = match &self.dem_location {
             Some(location) => location,
             None => &self.source.get_dem_for_point(lat, lon)?,
         };
         let handle = self.reader.open(dem_location)?;
-        let elev = handle.elevation_at(lat, lon)?;
+        Ok(handle.elevation_at(lat, lon)?)
+    }
 
-        Ok(elev)
+    pub fn prefetch_region(&mut self, bbox: &Bbox) -> Result<(), ElevationServiceError> {
+        if self.dem_location.is_none() {
+            self.dem_location = Some(self.source.get_dem_for_bbox(bbox)?);
+        }
+        let loc = self
+            .dem_location
+            .as_ref()
+            .expect("Unexpected error: dem_location should have been set by this point.");
+        if self.handle.is_none() {
+            self.handle = Some(self.reader.open(loc)?);
+        }
+        let handle = self
+            .handle
+            .as_mut()
+            .expect("Unexpected error: handle should have been set by this point.");
+        handle.prefetch_region(*bbox)?;
+
+        Ok(())
     }
 }

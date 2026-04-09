@@ -1,6 +1,6 @@
 use los::service::ElevationService;
-use los::source::Location;
 use los::source::topo::{TopoSource, UsgsTopoMapSource};
+use los::source::{DemSource, Location};
 use los::{DemReader, GdalReader, GeoTiffReader, UsgsSource};
 
 use clap::{Parser, Subcommand, ValueEnum};
@@ -75,11 +75,56 @@ enum SourceType {
     OpenTopo,
 }
 
+impl SourceType {
+    fn to_source(&self) -> Box<dyn DemSource> {
+        match self {
+            SourceType::Usgs => Box::new(UsgsSource),
+            SourceType::OpenTopo => {
+                // Placeholder for OpenTopo source implementation
+                unimplemented!("OpenTopo source is not implemented yet");
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, ValueEnum)]
 #[clap(rename_all = "lower")]
 enum ReaderType {
     GeoTiff,
     Gdal,
+}
+
+impl ReaderType {
+    fn to_reader(&self) -> Box<dyn DemReader> {
+        match self {
+            ReaderType::GeoTiff => Box::new(GeoTiffReader),
+            ReaderType::Gdal => Box::new(GdalReader),
+        }
+    }
+}
+
+fn parse_dem_spec(local: Option<String>, url: Option<String>) -> anyhow::Result<Option<Location>> {
+    match (local, url) {
+        (Some(local_path), None) => Ok(Some(Location::LocalPath(PathBuf::from(local_path)))),
+        (None, Some(remote_url)) => Ok(Some(Location::RemoteUrl(remote_url))),
+        (Some(_), Some(_)) => Err(anyhow::anyhow!(
+            "Cannot specify both local_dem and url_dem. Please choose one."
+        )),
+        (None, None) => Ok(None),
+    }
+}
+
+fn build_elevation_service(
+    reader_type: ReaderType,
+    source_type: SourceType,
+    local_dem: Option<String>,
+    url_dem: Option<String>,
+) -> anyhow::Result<ElevationService> {
+    let source = source_type.to_source();
+    let reader = reader_type.to_reader();
+    let dem_location = parse_dem_spec(local_dem, url_dem)?;
+
+    Ok(ElevationService::new(source, reader, dem_location))
 }
 
 fn lat_validator(s: &str) -> Result<f64, String> {
@@ -102,11 +147,6 @@ fn lon_validator(s: &str) -> Result<f64, String> {
     }
 }
 
-/// CLI for finding elevation at a given lat/lon using a specified reader and source.
-#[derive(Parser, Debug)]
-#[command(version, about, long_about = None)]
-struct CliArgs {}
-
 fn handle_elevation_command(
     reader_type: ReaderType,
     source_type: SourceType,
@@ -115,39 +155,11 @@ fn handle_elevation_command(
     lat: f64,
     lon: f64,
 ) -> anyhow::Result<()> {
-    let source = match source_type {
-        SourceType::Usgs => Box::new(UsgsSource),
-        SourceType::OpenTopo => {
-            return Err(anyhow::anyhow!("OpenTopo source is not implemented yet"));
-        } // SourceType::OpenTopo => OpenTopoSource::new(api_key),
-    };
-    let reader: Box<dyn DemReader> = match reader_type {
-        ReaderType::GeoTiff => Box::new(GeoTiffReader),
-        ReaderType::Gdal => Box::new(GdalReader),
-    };
-
-    let dem_location = match (local_dem, url_dem) {
-        (Some(local_path), None) => Some(Location::LocalPath(PathBuf::from(local_path))),
-        (None, Some(remote_url)) => Some(Location::RemoteUrl(remote_url)),
-        (Some(_), Some(_)) => {
-            return Err(anyhow::anyhow!(
-                "Cannot specify both local_dem and url_dem. Please choose one."
-            ));
-        }
-        (None, None) => None,
-    };
-    let elevation_service = ElevationService {
-        source,
-        reader,
-        dem_location,
-    };
+    let elevation_service = build_elevation_service(reader_type, source_type, local_dem, url_dem)?;
     let elevation = elevation_service.elevation_at(lat, lon)?;
     println!(
         "Elevation at ({}, {}): {:.2} m ({:.2} ft)",
-        lat,
-        lon,
-        elevation.m,
-        elevation.ft * 3.28084
+        lat, lon, elevation.m, elevation.ft
     );
     Ok(())
 }
@@ -167,12 +179,112 @@ fn handle_topo_command(lat: f64, lon: f64) -> anyhow::Result<()> {
 }
 
 fn handle_highlight_command(lat: f64, lon: f64, output: PathBuf) -> anyhow::Result<()> {
+    // TODO: reader and source selection should be configurable for this command as well, but for
+    // now we'll just hardcode it to use USGS topo maps and GDAL reader.
     println!(
         "Highlighting visible area on topo map for ({}, {}) and saving to {}",
         lat,
         lon,
         output.to_string_lossy()
     );
+    let t0 = std::time::Instant::now();
+    let map_source = UsgsTopoMapSource::fetch()?;
+    let map_descriptor = map_source.get_map_descriptor(lat, lon)?;
+    let map_path = map_source.fetch_map(&map_descriptor)?;
+    println!("Fetched topo map from USGS: {}", map_path.to_string_lossy());
+    println!(
+        "{:.3}s ({:.3}s total)",
+        t0.elapsed().as_secs_f32(),
+        t0.elapsed().as_secs_f32()
+    );
+    let t = std::time::Instant::now();
+    let mut elevation_service =
+        build_elevation_service(ReaderType::Gdal, SourceType::Usgs, None, None)?;
+    elevation_service.prefetch_region(&map_descriptor.bbox)?;
+    println!(
+        "Prefetched elevation data for map bounding box: {:?}",
+        map_descriptor.bbox
+    );
+    println!(
+        "{:.3}s ({:.3}s total)",
+        t.elapsed().as_secs_f32(),
+        t0.elapsed().as_secs_f32()
+    );
+    let t = std::time::Instant::now();
+    // LOS calc here
+    let elvation_at_point = elevation_service.elevation_at(lat, lon)?;
+
+    println!("Elevation at point: {} ft", elvation_at_point.ft);
+    println!(
+        "{:.3}s ({:.3}s total)",
+        t.elapsed().as_secs_f32(),
+        t0.elapsed().as_secs_f32()
+    );
+    let t = std::time::Instant::now();
+
+    let elevation_top_left =
+        elevation_service.elevation_at(map_descriptor.bbox.max_lat, map_descriptor.bbox.min_lon)?;
+    let elevation_center_top = elevation_service.elevation_at(
+        map_descriptor.bbox.max_lat,
+        (map_descriptor.bbox.max_lon + map_descriptor.bbox.min_lon) / 2.0,
+    )?;
+    let elevation_top_right =
+        elevation_service.elevation_at(map_descriptor.bbox.max_lat, map_descriptor.bbox.max_lon)?;
+
+    println!(
+        "{:.2}\t\t{:.2}\t\t{:.2}",
+        elevation_top_left.ft, elevation_center_top.ft, elevation_top_right.ft,
+    );
+    println!(
+        "{:.3}s ({:.3}s total)",
+        t.elapsed().as_secs_f32(),
+        t0.elapsed().as_secs_f32()
+    );
+    let t = std::time::Instant::now();
+
+    let elevation_center_left = elevation_service.elevation_at(
+        (map_descriptor.bbox.max_lat + map_descriptor.bbox.min_lat) / 2.0,
+        map_descriptor.bbox.min_lon,
+    )?;
+    let elevation_center = elevation_service.elevation_at(
+        (map_descriptor.bbox.max_lat + map_descriptor.bbox.min_lat) / 2.0,
+        (map_descriptor.bbox.max_lon + map_descriptor.bbox.min_lon) / 2.0,
+    )?;
+    let elevation_center_right = elevation_service.elevation_at(
+        (map_descriptor.bbox.max_lat + map_descriptor.bbox.min_lat) / 2.0,
+        map_descriptor.bbox.max_lon,
+    )?;
+
+    println!(
+        "{:.2}\t\t{:.2}\t\t{:.2}",
+        elevation_center_left.ft, elevation_center.ft, elevation_center_right.ft,
+    );
+    println!(
+        "{:.3}s ({:.3}s total)",
+        t.elapsed().as_secs_f32(),
+        t0.elapsed().as_secs_f32()
+    );
+    let t = std::time::Instant::now();
+
+    let elevation_bottom_left =
+        elevation_service.elevation_at(map_descriptor.bbox.min_lat, map_descriptor.bbox.min_lon)?;
+    let elevation_center_bottom = elevation_service.elevation_at(
+        map_descriptor.bbox.min_lat,
+        (map_descriptor.bbox.max_lon + map_descriptor.bbox.min_lon) / 2.0,
+    )?;
+    let elevation_bottom_right =
+        elevation_service.elevation_at(map_descriptor.bbox.min_lat, map_descriptor.bbox.max_lon)?;
+
+    println!(
+        "{:.2}\t\t{:.2}\t\t{:.2}",
+        elevation_bottom_left.ft, elevation_center_bottom.ft, elevation_bottom_right.ft,
+    );
+    println!(
+        "{:.3}s ({:.3}s total)",
+        t.elapsed().as_secs_f32(),
+        t0.elapsed().as_secs_f32()
+    );
+
     Ok(())
 }
 
