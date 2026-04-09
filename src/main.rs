@@ -1,7 +1,8 @@
-use los::service::ElevationService;
+use los::service::los::LineOfSightResult;
+use los::service::{ElevationService, LineOfSightService};
 use los::source::topo::{TopoSource, UsgsTopoMapSource};
 use los::source::{DemSource, Location};
-use los::{DemReader, GdalReader, GeoTiffReader, UsgsSource};
+use los::{Bbox, DemReader, GdalReader, GeoTiffReader, UsgsSource};
 
 use clap::{Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
@@ -45,6 +46,23 @@ enum Commands {
         /// Longitude of the point to retrieve the topo map for (e.g., -121.8144732)
         #[arg(long, allow_hyphen_values = true, value_parser = lon_validator)]
         lon: f64,
+    },
+    Sightline {
+        /// Latitude of the observer point (e.g., 48.7766298)
+        #[arg(long, allow_hyphen_values = true, value_parser = lat_validator)]
+        lat: f64,
+
+        /// Longitude of the observer point (e.g., -121.8144732)
+        #[arg(long, allow_hyphen_values = true, value_parser = lon_validator)]
+        lon: f64,
+
+        /// Latitude of the target point (e.g., 48.7766298)
+        #[arg(long, allow_hyphen_values = true, value_parser = lat_validator)]
+        target_lat: f64,
+
+        /// Longitude of the target point (e.g., -121.8144732)
+        #[arg(long, allow_hyphen_values = true, value_parser = lon_validator)]
+        target_lon: f64,
     },
     /// For a given lat/lon, output a map with visible area highlighted.
     Highlight {
@@ -178,6 +196,56 @@ fn handle_topo_command(lat: f64, lon: f64) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn handle_sightline_command(
+    lat: f64,
+    lon: f64,
+    target_lat: f64,
+    target_lon: f64,
+) -> anyhow::Result<()> {
+    let epsilon = 0.0001;
+    let mut elevation_service =
+        build_elevation_service(ReaderType::Gdal, SourceType::Usgs, None, None)?;
+    let bbox = Bbox {
+        min_lat: lat.min(target_lat) - epsilon,
+        max_lat: lat.max(target_lat) + epsilon,
+        min_lon: lon.min(target_lon) - epsilon,
+        max_lon: lon.max(target_lon) + epsilon,
+    };
+    elevation_service.prefetch_region(&bbox)?;
+    let los_service = LineOfSightService::new(Box::new(elevation_service));
+    let viewer_height_m = 2.0; // Giving the caller the benefit of the doubt.
+    match los_service.has_line_of_sight_with_height(
+        lat,
+        lon,
+        target_lat,
+        target_lon,
+        viewer_height_m,
+    )? {
+        LineOfSightResult::Clear => println!(
+            "Line of sight from ({}, {}) to ({}, {}) is clear.",
+            lat, lon, target_lat, target_lon
+        ),
+        LineOfSightResult::Blocked {
+            lat: blocking_lat,
+            lon: blocking_lon,
+            terrain_m,
+            sightline_m,
+        } => println!(
+            "Line of sight from ({}, {}) to ({}, {}) is blocked by terrain at ({:.7}, {:.7}) with elevation {:.2} m, which is {:.2} m above the sightline.",
+            lat,
+            lon,
+            target_lat,
+            target_lon,
+            blocking_lat,
+            blocking_lon,
+            terrain_m,
+            terrain_m - sightline_m
+        ),
+    }
+
+    Ok(())
+}
+
 fn handle_highlight_command(lat: f64, lon: f64, output: PathBuf) -> anyhow::Result<()> {
     // TODO: reader and source selection should be configurable for this command as well, but for
     // now we'll just hardcode it to use USGS topo maps and GDAL reader.
@@ -299,6 +367,12 @@ fn main() -> anyhow::Result<()> {
             lon,
         } => handle_elevation_command(reader_type, source_type, local_dem, url_dem, lat, lon),
         Commands::Topo { lat, lon } => handle_topo_command(lat, lon),
+        Commands::Sightline {
+            lat,
+            lon,
+            target_lat,
+            target_lon,
+        } => handle_sightline_command(lat, lon, target_lat, target_lon),
         Commands::Highlight { lat, lon, output } => handle_highlight_command(lat, lon, output),
     }
 }

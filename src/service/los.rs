@@ -6,7 +6,12 @@ pub trait ElevationProvider {
 
 pub enum LineOfSightResult {
     Clear,
-    Blocked { lat: f64, lon: f64, terrain_m: f64, sightline_m: f64 },
+    Blocked {
+        lat: f64,
+        lon: f64,
+        terrain_m: f64,
+        sightline_m: f64,
+    },
 }
 
 impl LineOfSightResult {
@@ -39,9 +44,21 @@ impl LineOfSightService {
         lat2: f64,
         lon2: f64,
     ) -> Result<LineOfSightResult, anyhow::Error> {
+        self.has_line_of_sight_with_height(lat1, lon1, lat2, lon2, 0.0)
+    }
+
+    pub fn has_line_of_sight_with_height(
+        &self,
+        lat1: f64,
+        lon1: f64,
+        lat2: f64,
+        lon2: f64,
+        viewer_height_m: f64,
+    ) -> Result<LineOfSightResult, anyhow::Error> {
         let elev1 = self.elevation_provider.elevation_at(lat1, lon1)?;
         let elev2 = self.elevation_provider.elevation_at(lat2, lon2)?;
-        self.has_los_to_floating_point(lat1, lon1, elev1.m, lat2, lon2, elev2.m)
+        let adjusted_elev1_m = elev1.m + viewer_height_m;
+        self.has_los_to_floating_point(lat1, lon1, adjusted_elev1_m, lat2, lon2, elev2.m)
     }
 
     fn has_los_to_floating_point(
@@ -73,7 +90,14 @@ impl LineOfSightService {
         }
 
         // Recurse on the two halves of the line, short-circuiting if possible.
-        match self.has_los_to_floating_point(lat1, lon1, elev1_m, mid_lat, mid_lon, expected_mid_elev)? {
+        match self.has_los_to_floating_point(
+            lat1,
+            lon1,
+            elev1_m,
+            mid_lat,
+            mid_lon,
+            expected_mid_elev,
+        )? {
             LineOfSightResult::Clear => self.has_los_to_floating_point(
                 mid_lat,
                 mid_lon,
@@ -145,35 +169,80 @@ mod tests {
     #[test]
     fn test_same_point() {
         let service = LineOfSightService::new(Box::new(FlatElevation));
-        assert!(service.has_line_of_sight(0.0, 0.0, 0.0, 0.0).unwrap().is_clear());
+        assert!(
+            service
+                .has_line_of_sight(0.0, 0.0, 0.0, 0.0)
+                .unwrap()
+                .is_clear()
+        );
     }
 
     #[test]
     fn test_los_short() {
         let service = LineOfSightService::new(Box::new(FlatElevation));
-        assert!(service.has_line_of_sight(0.0, 0.0, 0.00001, 0.0).unwrap().is_clear());
+        assert!(
+            service
+                .has_line_of_sight(0.0, 0.0, 0.00001, 0.0)
+                .unwrap()
+                .is_clear()
+        );
     }
 
     #[test]
     fn test_los_flat() {
         let service = LineOfSightService::new(Box::new(FlatElevation));
-        assert!(service.has_line_of_sight(0.0, 0.0, 1.0, 1.0).unwrap().is_clear());
+        assert!(
+            service
+                .has_line_of_sight(0.0, 0.0, 1.0, 1.0)
+                .unwrap()
+                .is_clear()
+        );
     }
 
     #[test]
     fn test_los_wall() {
         let service = LineOfSightService::new(Box::new(WallElevation));
-        assert!(service.has_line_of_sight(-1.0, 0.0, 1.0, 0.0).unwrap().is_blocked());
-        assert!(service.has_line_of_sight(-1.0, 0.0, -1.0, 1.0).unwrap().is_clear());
-        assert!(service.has_line_of_sight(1.0, 0.0, 1.0, 1.0).unwrap().is_clear());
-        assert!(service.has_line_of_sight(0.0, 0.0, 0.0, 1.0).unwrap().is_clear());
+        assert!(
+            service
+                .has_line_of_sight(-1.0, 0.0, 1.0, 0.0)
+                .unwrap()
+                .is_blocked()
+        );
+        assert!(
+            service
+                .has_line_of_sight(-1.0, 0.0, -1.0, 1.0)
+                .unwrap()
+                .is_clear()
+        );
+        assert!(
+            service
+                .has_line_of_sight(1.0, 0.0, 1.0, 1.0)
+                .unwrap()
+                .is_clear()
+        );
+        assert!(
+            service
+                .has_line_of_sight(0.0, 0.0, 0.0, 1.0)
+                .unwrap()
+                .is_clear()
+        );
     }
 
     #[test]
     fn test_los_valley() {
         let service = LineOfSightService::new(Box::new(ValleyElevation));
-        assert!(service.has_line_of_sight(-1.0, 0.0, 1.0, 0.0).unwrap().is_clear());
-        assert!(service.has_line_of_sight(-1.0, 0.0, 0.5, 1.0).unwrap().is_clear());
+        assert!(
+            service
+                .has_line_of_sight(-1.0, 0.0, 1.0, 0.0)
+                .unwrap()
+                .is_clear()
+        );
+        assert!(
+            service
+                .has_line_of_sight(-1.0, 0.0, 0.5, 1.0)
+                .unwrap()
+                .is_clear()
+        );
     }
 
     #[test]
@@ -181,10 +250,20 @@ mod tests {
         let service = LineOfSightService::new(Box::new(RampElevation));
         // LOS from top of ramp to distance should be clear, since the ramp is always below the
         // line connecting the two points.
-        assert!(service.has_line_of_sight(0.0, 0.0, 2.0, 0.0).unwrap().is_clear());
+        assert!(
+            service
+                .has_line_of_sight(0.0, 0.0, 2.0, 0.0)
+                .unwrap()
+                .is_clear()
+        );
 
         // LOS from behind edge of ramp to bottom of ramp should be blocked, since the ramp is
         // above the line connecting the two points.
-        assert!(service.has_line_of_sight(-1.0, 0.0, 1.0, 0.0).unwrap().is_blocked());
+        assert!(
+            service
+                .has_line_of_sight(-1.0, 0.0, 1.0, 0.0)
+                .unwrap()
+                .is_blocked()
+        );
     }
 }
