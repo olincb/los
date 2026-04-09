@@ -15,6 +15,7 @@ fn test_line_of_sight_ridge_to_ridge() {
         los_service
             .has_line_of_sight(lat1, lon1, lat2, lon2)
             .unwrap()
+            .is_clear()
     );
 }
 
@@ -25,8 +26,9 @@ fn test_line_of_sight_valley_to_valley() {
     let (lat2, lon2) = VALLEY_POINT_2;
     let los_service = LineOfSightService::new(Box::new(service));
     assert!(
-        !los_service
+        los_service
             .has_line_of_sight(lat1, lon1, lat2, lon2)
             .unwrap()
+            .is_blocked()
     );
 }
