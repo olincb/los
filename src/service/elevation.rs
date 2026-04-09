@@ -1,3 +1,4 @@
+use super::los::ElevationProvider;
 use crate::reader::{DemHandle, DemReader, DemReaderError};
 use crate::source::{DemSource, DemSourceError, Location};
 use crate::{Bbox, Elevation};
@@ -61,5 +62,11 @@ impl ElevationService {
         handle.prefetch_region(*bbox)?;
 
         Ok(())
+    }
+}
+
+impl ElevationProvider for ElevationService {
+    fn elevation_at(&self, lat: f64, lon: f64) -> Result<Elevation, anyhow::Error> {
+        Ok(self.elevation_at(lat, lon)?)
     }
 }
