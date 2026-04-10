@@ -23,27 +23,12 @@ fn lon_validator(s: &str) -> Result<f64, String> {
     }
 }
 
+/// CLI for the Line of Sight library. Provides commands for elevation queries, topographical map
+/// retrieval, sightline analysis, and visibility highlighting based on geographic coordinates.
 #[derive(Subcommand, Debug)]
 enum Commands {
     /// Find elevation at a given lat/lon using a specified reader and source.
     Elevation {
-        /// Type of reader to use
-        #[arg(short, long, default_value = "gdal")]
-        reader_type: ReaderType,
-
-        /// Source for fetching the DEM (ignored if dem_path is provided)
-        #[arg(short, long, default_value = "usgs")]
-        source_type: SourceType,
-
-        /// Path to a local GeoTIFF file to bypass using an automatic source
-        /// (overrides source_type if provided)
-        #[arg(short, long, conflicts_with = "url_dem")]
-        local_dem: Option<String>,
-
-        /// Remote URL to a DEM file to bypass using an automatic source
-        /// (overrides source_type if provided)
-        #[arg(short, long, conflicts_with = "local_dem")]
-        url_dem: Option<String>,
 
         /// Latitude of the point to query (e.g., 48.7766298)
         #[arg(long, allow_hyphen_values = true, value_parser = lat_validator)]
@@ -63,6 +48,7 @@ enum Commands {
         #[arg(long, allow_hyphen_values = true, value_parser = lon_validator)]
         lon: f64,
     },
+    /// Determine if the target point is visible from the observer point.
     Sightline {
         /// Latitude of the observer point (e.g., 48.7766298)
         #[arg(long, allow_hyphen_values = true, value_parser = lat_validator)]
@@ -98,6 +84,24 @@ enum Commands {
 
 #[derive(Parser)]
 pub struct Cli {
+    /// Type of reader to use
+    #[arg(short, long, default_value = "gdal", global = true)]
+    reader_type: ReaderType,
+
+    /// Source for fetching the DEM (ignored if dem_path is provided)
+    #[arg(short, long, default_value = "usgs", global = true)]
+    source_type: SourceType,
+
+    /// Path to a local GeoTIFF file to bypass using an automatic source
+    /// (overrides source_type if provided)
+    #[arg(short, long, conflicts_with = "url_dem", global = true)]
+    local_dem: Option<String>,
+
+    /// Remote URL to a DEM file to bypass using an automatic source
+    /// (overrides source_type if provided)
+    #[arg(short, long, conflicts_with = "local_dem", global = true)]
+    url_dem: Option<String>,
+
     #[command(subcommand)]
     command: Commands,
 }
@@ -105,17 +109,13 @@ pub struct Cli {
 pub fn handle_main_cli(parser: Cli) -> anyhow::Result<()> {
     match parser.command {
         Commands::Elevation {
-            reader_type,
-            source_type,
-            local_dem,
-            url_dem,
             lat,
             lon,
         } => elevation::handle_elevation_command(
-            reader_type,
-            source_type,
-            local_dem,
-            url_dem,
+            parser.reader_type,
+            parser.source_type,
+            parser.local_dem,
+            parser.url_dem,
             lat,
             lon,
         ),
