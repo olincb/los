@@ -1,5 +1,5 @@
 use super::common::{ReaderType, SourceType};
-use super::{elevation, highlight, sightline, topo};
+use super::{elevation, highlight, sightline, topo, viewshed};
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
@@ -29,7 +29,6 @@ fn lon_validator(s: &str) -> Result<f64, String> {
 enum Commands {
     /// Find elevation at a given lat/lon using a specified reader and source.
     Elevation {
-
         /// Latitude of the point to query (e.g., 48.7766298)
         #[arg(long, allow_hyphen_values = true, value_parser = lat_validator)]
         lat: f64,
@@ -80,6 +79,29 @@ enum Commands {
         #[arg(short, long, default_value = "map.pdf")]
         output: PathBuf,
     },
+    /// For a given lat/lon, write a terminal-based map with visible area highlighted.
+    Viewshed {
+        /// Latitude of the observer point (e.g., 48.7766298)
+        #[arg(long, allow_hyphen_values = true, value_parser = lat_validator)]
+        lat: f64,
+
+        /// Longitude of the observer point (e.g., -121.8144732)
+        #[arg(long, allow_hyphen_values = true, value_parser = lon_validator)]
+        lon: f64,
+
+        /// Width of the area to cover in degrees. Defaults to 0.125 degrees (~6.5 miles).
+        /// Height is determined based on width to maintain aspect ratio of the terminal output.
+        #[arg(short, long, default_value = "0.125")]
+        width: f64,
+
+        /// Width of the output in characters. Defaults to width of the terminal.
+        #[arg(long)]
+        cols: Option<usize>,
+
+        /// Height of the output in characters. Defaults to height of the terminal.
+        #[arg(long)]
+        rows: Option<usize>,
+    },
 }
 
 #[derive(Parser)]
@@ -108,10 +130,7 @@ pub struct Cli {
 
 pub fn handle_main_cli(parser: Cli) -> anyhow::Result<()> {
     match parser.command {
-        Commands::Elevation {
-            lat,
-            lon,
-        } => elevation::handle_elevation_command(
+        Commands::Elevation { lat, lon } => elevation::handle_elevation_command(
             parser.reader_type,
             parser.source_type,
             parser.local_dem,
@@ -129,5 +148,12 @@ pub fn handle_main_cli(parser: Cli) -> anyhow::Result<()> {
         Commands::Highlight { lat, lon, output } => {
             highlight::handle_highlight_command(lat, lon, output)
         }
+        Commands::Viewshed {
+            lat,
+            lon,
+            width,
+            cols,
+            rows,
+        } => viewshed::handle_viewshed_command(lat, lon, width, cols, rows),
     }
 }

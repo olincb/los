@@ -16,6 +16,7 @@ pub struct ElevationService {
     pub reader: Box<dyn DemReader>,
     pub dem_location: Option<Location>,
     handle: Option<Box<dyn DemHandle>>,
+    prefetch_margin: f64,
 }
 
 impl ElevationService {
@@ -29,6 +30,7 @@ impl ElevationService {
             reader,
             dem_location,
             handle: None,
+            prefetch_margin: 0.0001,
         }
     }
 
@@ -44,9 +46,13 @@ impl ElevationService {
         Ok(handle.elevation_at(lat, lon)?)
     }
 
+    /// Prefetches a region of elevation data around the given bounding box, with an additional
+    /// margin. This prevents multiple round-trips to the source and reader when requesting
+    /// elevations for points that fall within the margin of the bounding box.
     pub fn prefetch_region(&mut self, bbox: &Bbox) -> Result<(), ElevationServiceError> {
+        let bbox = bbox.with_margin(self.prefetch_margin);
         if self.dem_location.is_none() {
-            self.dem_location = Some(self.source.get_dem_for_bbox(bbox)?);
+            self.dem_location = Some(self.source.get_dem_for_bbox(&bbox)?);
         }
         let loc = self
             .dem_location
@@ -59,7 +65,7 @@ impl ElevationService {
             .handle
             .as_mut()
             .expect("Unexpected error: handle should have been set by this point.");
-        handle.prefetch_region(*bbox)?;
+        handle.prefetch_region(bbox)?;
 
         Ok(())
     }
