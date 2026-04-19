@@ -1,8 +1,11 @@
-# los
+# LOS
 Line Of Sight GIS tool in Rust.
 
-The goal of this project is to export a map for any given coordinate,
+This project exports a map for any given coordinate,
 with the area of the map visible from that coordinate highlighted.
+This is called a "viewshed" in GIS terminology.
+
+![Viewshed highlight on USGS topo map](docs/highlight.png)
 
 System overview:
 
@@ -10,8 +13,7 @@ System overview:
 2. [Elevation lookup from DEM datasets](#dem-reader)
 3. [Line of sight calculation](#line-of-sight-calculation)
 4. [Map retrieval](#map-retrieval)
-5. Map rendering (TODO)
-6. Map export (TODO)
+5. [Map rendering](#map-rendering)
 
 The current default implementation uses [USGS 3DEP data streamed via GDAL from AWS-hosted VRT datasets](#usgs-source).
 
@@ -19,7 +21,17 @@ The current default implementation uses [USGS 3DEP data streamed via GDAL from A
 
 ### Quick Start
 
-Check if a clear line of sight exists between two points:
+Export a viewshed map for a given coordinate:
+
+```bash
+cargo run -- highlight --lat 48.629936 --lon -122.407294
+```
+This writes `map.png` to the current directory, which contains a topographical
+map containing the given coordinate, with the coordinate indicated in red, and
+visible area highlighted.
+
+<details>
+<summary>Check if a clear line of sight exists between two points</summary>
 
 ```bash
 cargo run -- sightline --lat 48.777196 --lon -121.814224 --target-lat 48.831007 --target-lon -121.603571
@@ -28,8 +40,10 @@ cargo run -- sightline --lat 48.777196 --lon -121.814224 --target-lat 48.831007 
 ```text
 Line of sight from (48.777196, -121.814224) to (48.831007, -121.603571) is clear.
 ```
+</details>
 
-Query elevation at a given coordinate:
+<details>
+<summary>Query elevation at a given coordinate</summary>
 
 ```bash
 cargo run -- elevation --lat 48.7766298 --lon -121.8144732
@@ -38,13 +52,14 @@ cargo run -- elevation --lat 48.7766298 --lon -121.8144732
 ```text
 Elevation at (48.7766298, -121.8144732): 3281.13 m (10764.87 ft)
 ```
+</details>
 
-### Help
+<details>
+<summary>CLI Help</summary>
+
 ```bash
 cargo run -- --help
 ```
-<details>
-<summary>CLI Help</summary>
 
 
 ```text
@@ -67,6 +82,8 @@ Options:
   -h, --help                       Print help
 ```
 </details>
+
+See `src/cli/interface.rs` for more details on available commands and options.
 
 ### Release build
 ```bash
@@ -131,6 +148,7 @@ Reading a single point may still trigger a full internal block read (e.g., 128×
 #### Future Sources
 
 - OpenTopography
+- AWS Terrain Tiles
 
 ### DEM Reader 
 
@@ -153,6 +171,9 @@ requests for nearby points, which is important for line of sight calculations.
 `GeoTiffReader` supports local GeoTIFF files only. It is a lightweight
 implementation using the `geotiff` crate, without external dependencies.
 
+The goal is to expand on this after implementing a DEM source that pulls TIF
+files that are small enough to be downloaded in their entirety, such as AWS Terrain Tiles.
+
 ### Elevation Service (`src/service/`)
 Combines a `DemSource` and `DemReader` to provide elevation lookup.
 
@@ -173,6 +194,16 @@ file that contains maximum and minimum latitudes and longitudes for each map,
 as well as the URL to the GeoPDF. The source implementation loads this
 information into a SQLite database, and uses R-tree indexing for efficient
 lookup.
+
+### Map Rendering
+
+`src/service/highlighter.rs`
+
+The Highlighter Service takes a descriptor of a topographic map, and the results
+of line of sight calculations, and produces a rendered map with the visible area
+highlighted. The current implementation relies heavily on `gdal` for reading
+GeoPDFs and pulling pixel data from the raster layers. It uses `image` for
+drawing the highlight overlay and exporting the final image.
 
 ## Dependencies
 At the moment, the default CLI path depends on GDAL for remote USGS access.
@@ -204,19 +235,25 @@ the height of the observer above ground level.
 ## TODO
 
 ### Core functionality
-- Implement OpenTopography DEM retrieval
+- Implement AWS Terrain Tile DEM retrieval
 - Correction for earth curvature
 - Configurable step size / resolution for line of sight calculation
 - Implement non-PDF map retrieval from https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}
   - Use standard Web Mercator tile math to fetch correct tile for given lat/lon and zoom level
+- New CLI arg to adjust viewer height
 
 ### Performance / usability improvements
 - Make GDAL an optional dependency
+  - Implement fetch of remote GeoTIFF files, and use the existing `GeoTiffReader`
+    - This will require work on a DEM source that has small enough tiles that
+    they can be downloaded in their entirety, such as AWS Terrain Tiles
+    - Automatically determine if DEM file has Web Mercator or geographic
+    coordinates, and handle reprojection if necessary
+  - Download png topo maps rather than GeoPDFs, and handle entirely with `image` crate
+  
 
 ### Map features
 - Force refresh of topo cache
-- Map rendering
-- Map export
 
 ### Clean up
 
@@ -229,3 +266,6 @@ the height of the observer above ground level.
     - https://www.tellusxdp.com/en-us/catalog/data/aster_gdem_ver_3.html
     - Pixel interval: 1 sec (Approximately 30 m)
     - Height accuracy: 7-14 m
+- Look into AWS Terrain Tiles
+    - https://registry.opendata.aws/terrain-tiles/
+    - Global coverage at zoom levels 0-15, sourced from ~10m USGS data
