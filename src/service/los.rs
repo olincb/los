@@ -65,6 +65,19 @@ impl fmt::Display for ViewshedGrid {
     }
 }
 
+impl ViewshedGrid {
+    pub fn has_line_of_sight(&self, lat: f64, lon: f64) -> Option<bool> {
+        if !self.bbox.contains(lat, lon) {
+            return None;
+        }
+        let y_proportion = (self.bbox.max_lat - lat) / self.bbox.height();
+        let x_proportion = (lon - self.bbox.min_lon) / self.bbox.width();
+        let y = (y_proportion * (self.height - 1) as f64).round() as usize;
+        let x = (x_proportion * (self.width - 1) as f64).round() as usize;
+        Some(self.data[y * self.width + x])
+    }
+}
+
 pub struct LineOfSightService {
     elevation_provider: Box<dyn ElevationProvider>,
     max_step_degrees: f64,
@@ -107,6 +120,17 @@ impl LineOfSightService {
         let adjusted_elev1_m = elev1.m + viewer_height_m;
         self.has_los_to_floating_point(lat1, lon1, adjusted_elev1_m, lat2, lon2, elev2.m)
     }
+
+    /// Computes the viewshed grid for a given viewer location and bounding box.
+    /// `max_resolution_degrees` specifies the maximum resolution of the grid in degrees. The
+    /// actual resolution may be slightly higher to maintain a consistent resolution in meters
+    /// across the viewshed, but it will not be lower than this value. `viewer_height_m` specifies
+    /// the height of the viewer above the ground in meters, which is added to the elevation at the
+    /// viewer's location when calculating line of sight. If `viewer_height_m` is None, it defaults
+    /// to 0 (i.e. the viewer is at ground level).
+    /// The resolution in degrees is applied as-is to the latitude direction, but is adjusted for
+    /// the longitude direction based on the viewer's latitude to maintain a consistent resolution
+    /// in meters across the viewshed.
     pub fn viewshed(
         &self,
         lat: f64,
@@ -121,7 +145,8 @@ impl LineOfSightService {
                 max_resolution_degrees
             ));
         }
-        let cols = (bbox.width() / max_resolution_degrees).ceil() as usize + 1;
+        let lon_step = max_resolution_degrees / lat.to_radians().cos();
+        let cols = (bbox.width() / lon_step).ceil() as usize + 1;
         let rows = (bbox.height() / max_resolution_degrees).ceil() as usize + 1;
         self.viewshed_for_grid(lat, lon, bbox, cols, rows, viewer_height_m)
     }

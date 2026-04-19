@@ -76,7 +76,7 @@ enum Commands {
         lon: f64,
 
         /// File path the output file should be written to.
-        #[arg(short, long, default_value = "map.pdf")]
+        #[arg(short, long, default_value = "map.png")]
         output: PathBuf,
     },
     /// For a given lat/lon, write a terminal-based map with visible area highlighted.

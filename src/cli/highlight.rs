@@ -1,4 +1,5 @@
 use super::common::{ReaderType, SourceType, build_elevation_service};
+use los::service::{HighlighterService, LineOfSightService};
 use los::source::topo::{TopoSource, UsgsTopoMapSource};
 use std::path::PathBuf;
 
@@ -11,9 +12,11 @@ pub fn handle_highlight_command(lat: f64, lon: f64, output: PathBuf) -> anyhow::
         lon,
         output.to_string_lossy()
     );
+    println!("Fetching topo map from USGS...");
     let t0 = std::time::Instant::now();
     let map_source = UsgsTopoMapSource::fetch()?;
     let map_descriptor = map_source.get_map_descriptor(lat, lon)?;
+    let bbox = map_descriptor.bbox;
     let map_path = map_source.fetch_map(&map_descriptor)?;
     println!("Fetched topo map from USGS: {}", map_path.to_string_lossy());
     println!(
@@ -21,93 +24,47 @@ pub fn handle_highlight_command(lat: f64, lon: f64, output: PathBuf) -> anyhow::
         t0.elapsed().as_secs_f32(),
         t0.elapsed().as_secs_f32()
     );
+    println!("Prefetching elevation data for map bounding box...");
     let t = std::time::Instant::now();
     let mut elevation_service =
         build_elevation_service(ReaderType::Gdal, SourceType::Usgs, None, None)?;
-    elevation_service.prefetch_region(&map_descriptor.bbox)?;
-    println!(
-        "Prefetched elevation data for map bounding box: {:?}",
-        map_descriptor.bbox
-    );
+    elevation_service.prefetch_region(&bbox)?;
+    println!("Prefetched elevation data for map bounding box: {:?}", bbox);
     println!(
         "{:.3}s ({:.3}s total)",
         t.elapsed().as_secs_f32(),
         t0.elapsed().as_secs_f32()
     );
+    println!("Calculating viewshed...");
     let t = std::time::Instant::now();
-    // LOS calc here
-    let elvation_at_point = elevation_service.elevation_at(lat, lon)?;
-
-    println!("Elevation at point: {} ft", elvation_at_point.ft);
+    let los_service = LineOfSightService::new(Box::new(elevation_service));
+    let viewer_height_m = 3.0; // They're on their tip toes.
+    let resolution_deg = 0.0001; // TODO: make configurable
+    let viewshed_result =
+        los_service.viewshed(lat, lon, bbox, resolution_deg, Some(viewer_height_m))?;
+    println!(
+        "Calculated viewshed with resolution {} degrees, resulting in grid of {} cols x {} rows.",
+        resolution_deg, viewshed_result.width, viewshed_result.height
+    );
     println!(
         "{:.3}s ({:.3}s total)",
         t.elapsed().as_secs_f32(),
         t0.elapsed().as_secs_f32()
     );
+    println!("Highlighting viewshed on topo map...");
     let t = std::time::Instant::now();
-
-    let elevation_top_left =
-        elevation_service.elevation_at(map_descriptor.bbox.max_lat, map_descriptor.bbox.min_lon)?;
-    let elevation_center_top = elevation_service.elevation_at(
-        map_descriptor.bbox.max_lat,
-        (map_descriptor.bbox.max_lon + map_descriptor.bbox.min_lon) / 2.0,
-    )?;
-    let elevation_top_right =
-        elevation_service.elevation_at(map_descriptor.bbox.max_lat, map_descriptor.bbox.max_lon)?;
-
-    println!(
-        "{:.2}\t\t{:.2}\t\t{:.2}",
-        elevation_top_left.ft, elevation_center_top.ft, elevation_top_right.ft,
-    );
+    let highlighter = HighlighterService::default();
+    let highlighted_map = highlighter.highlight_viewshed(&map_descriptor, &viewshed_result)?;
+    println!("Highlighted viewshed on topo map.");
     println!(
         "{:.3}s ({:.3}s total)",
         t.elapsed().as_secs_f32(),
         t0.elapsed().as_secs_f32()
     );
-    let t = std::time::Instant::now();
-
-    let elevation_center_left = elevation_service.elevation_at(
-        (map_descriptor.bbox.max_lat + map_descriptor.bbox.min_lat) / 2.0,
-        map_descriptor.bbox.min_lon,
-    )?;
-    let elevation_center = elevation_service.elevation_at(
-        (map_descriptor.bbox.max_lat + map_descriptor.bbox.min_lat) / 2.0,
-        (map_descriptor.bbox.max_lon + map_descriptor.bbox.min_lon) / 2.0,
-    )?;
-    let elevation_center_right = elevation_service.elevation_at(
-        (map_descriptor.bbox.max_lat + map_descriptor.bbox.min_lat) / 2.0,
-        map_descriptor.bbox.max_lon,
-    )?;
-
-    println!(
-        "{:.2}\t\t{:.2}\t\t{:.2}",
-        elevation_center_left.ft, elevation_center.ft, elevation_center_right.ft,
-    );
-    println!(
-        "{:.3}s ({:.3}s total)",
-        t.elapsed().as_secs_f32(),
-        t0.elapsed().as_secs_f32()
-    );
-    let t = std::time::Instant::now();
-
-    let elevation_bottom_left =
-        elevation_service.elevation_at(map_descriptor.bbox.min_lat, map_descriptor.bbox.min_lon)?;
-    let elevation_center_bottom = elevation_service.elevation_at(
-        map_descriptor.bbox.min_lat,
-        (map_descriptor.bbox.max_lon + map_descriptor.bbox.min_lon) / 2.0,
-    )?;
-    let elevation_bottom_right =
-        elevation_service.elevation_at(map_descriptor.bbox.min_lat, map_descriptor.bbox.max_lon)?;
-
-    println!(
-        "{:.2}\t\t{:.2}\t\t{:.2}",
-        elevation_bottom_left.ft, elevation_center_bottom.ft, elevation_bottom_right.ft,
-    );
-    println!(
-        "{:.3}s ({:.3}s total)",
-        t.elapsed().as_secs_f32(),
-        t0.elapsed().as_secs_f32()
-    );
+    println!("Saving highlighted map to {}", output.to_string_lossy());
+    highlighted_map.save(&output)?;
+    println!("Saved highlighted map to {}", output.to_string_lossy());
+    println!("Total time: {:.3}s", t0.elapsed().as_secs_f32(),);
 
     Ok(())
 }

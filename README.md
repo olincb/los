@@ -207,6 +207,8 @@ the height of the observer above ground level.
 - Implement OpenTopography DEM retrieval
 - Correction for earth curvature
 - Configurable step size / resolution for line of sight calculation
+- Implement non-PDF map retrieval from https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}
+  - Use standard Web Mercator tile math to fetch correct tile for given lat/lon and zoom level
 
 ### Performance / usability improvements
 - Make GDAL an optional dependency
@@ -215,6 +217,12 @@ the height of the observer above ground level.
 - Force refresh of topo cache
 - Map rendering
 - Map export
+
+### Clean up
+
+- Error handling - remove anyhow?
+- Consistency in exports across modules
+- Passing configs into all commands
 
 ### Research
 - Look into ASTER GDEM
