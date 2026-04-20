@@ -269,3 +269,19 @@ the height of the observer above ground level.
 - Look into AWS Terrain Tiles
     - https://registry.opendata.aws/terrain-tiles/
     - Global coverage at zoom levels 0-15, sourced from ~10m USGS data
+
+### API
+- Expose an API for generating viewsheds, eventually to be embedded in a web app
+  - axum
+  - 2 stage dockerfile, build and runtime images
+  - deploy with fly.io or similar
+  - write results to S3 and return URL for retrieval
+    - serves as caching layer for repeated requests for the same coordinate
+- After API is stable, write thin client in JS that can call the API and display results in the browser
+
+### WebAssembly module
+- Run the highlight algorithm in the browser, all clientside
+- Prerequisites
+  - Pure Rust implementation of DEM reading that can run in Wasm, without GDAL dependencies
+  - Removal of SQLite dependency for DEM source lookup, or replacement with an in-memory solution
+- wasm-bindgen interface
