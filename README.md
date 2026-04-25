@@ -17,6 +17,8 @@ System overview:
 
 The current default implementation uses [USGS 3DEP data streamed via GDAL from AWS-hosted VRT datasets](#usgs-source).
 
+The pipeline is available via both a [CLI](#usage) and an [API server](#api-server).
+
 ## Usage
 
 ### Quick Start
@@ -72,6 +74,7 @@ Commands:
   topo       Retrieve a topographical map for a given lat/lon
   sightline  Determine if the target point is visible from the observer point
   highlight  For a given lat/lon, output a map with visible area highlighted
+  viewshed   For a given lat/lon, write a terminal-based map with visible area highlighted
   help       Print this message or the help of the given subcommand(s)
 
 Options:
@@ -86,8 +89,10 @@ Options:
 See `src/cli/interface.rs` for more details on available commands and options.
 
 ### Release build
+
+Main cli is `los` binary, and the API server is `los-server`.
 ```bash
-cargo build --release
+cargo build --release --bin los
 target/release/los elevation --lat 48.7766298 --lon -121.8144732
 ```
 
@@ -205,6 +210,14 @@ highlighted. The current implementation relies heavily on `gdal` for reading
 GeoPDFs and pulling pixel data from the raster layers. It uses `image` for
 drawing the highlight overlay and exporting the final image.
 
+### Orchestrator (`src/orchestrator.rs`)
+
+The orchestrator ties together the elevation service, map retrieval, viewshed
+calculation, and map rendering into a single pipeline. It accepts an
+`ElevationService`, a `TopoSource`, and query parameters (lat, lon, viewer
+height, resolution), and returns the final highlighted image. Both the CLI and
+API server are thin wrappers around this shared pipeline.
+
 ## Dependencies
 At the moment, the default CLI path depends on GDAL for remote USGS access.
 A lightweight local-only `geotiff` reader also exists, but the project currently assumes [GDAL is installed](https://gdal.org/en/stable/download.html).
@@ -232,6 +245,46 @@ result contains the coordinates of the obstruction and elevation at that point.
 An optional viewer height can be added to the observer elevation to account for
 the height of the observer above ground level.
 
+## Performance
+- **Topo map disk cache**: USGS topo maps are cached locally after first download (~/.cache/los/).
+- **Highlight stage bilinear coordinate interpolation**: Corner-only coordinate
+  transforms with bilinear interpolation for interior pixels reduced the highlight
+  stage from \~33.3s to \~2.7s for a given test coordinate on a 4800×5800 map.
+- DEM is currently cached in memory for the duration of a single request.
+
+
+## API Server
+
+A standalone HTTP server exposes the highlight functionality as a REST API.
+
+### Running
+
+```bash
+cargo run --bin los-server --release
+```
+
+The server listens on 127.0.0.1:3000 by default. Override with HOST and PORT
+environment variables.
+
+### Endpoints
+
+#### GET `/api/v1/highlight?lat={lat}&lon={lon}`
+
+Returns a PNG image of the viewshed highlight for the given coordinate.
+
+```bash
+curl "http://localhost:3000/api/v1/highlight?lat=48.63&lon=-122.41" -o map.png
+```
+
+#### GET `/api/v1/health`
+
+Returns ok. Use for liveness checks.
+
+### Architecture
+
+The server is a thin wrapper around the shared orchestrator pipeline.
+It accepts HTTP requests, parses query parameters, and returns the resulting image.
+
 ## TODO
 
 ### Core functionality
@@ -250,6 +303,7 @@ the height of the observer above ground level.
     - Automatically determine if DEM file has Web Mercator or geographic
     coordinates, and handle reprojection if necessary
   - Download png topo maps rather than GeoPDFs, and handle entirely with `image` crate
+- Caching DEM data between requests, rather than in-memory only for a single request
   
 
 ### Map features
@@ -270,13 +324,11 @@ the height of the observer above ground level.
     - https://registry.opendata.aws/terrain-tiles/
     - Global coverage at zoom levels 0-15, sourced from ~10m USGS data
 
-### API
-- Expose an API for generating viewsheds, eventually to be embedded in a web app
-  - axum
-  - 2 stage dockerfile, build and runtime images
-  - deploy with fly.io or similar
-  - write results to S3 and return URL for retrieval
-    - serves as caching layer for repeated requests for the same coordinate
+### API Deployment
+- 2 stage dockerfile, build and runtime images
+- deploy with fly.io or similar
+- write results to S3 and return URL for retrieval
+  - serves as caching layer for repeated requests for the same coordinate
 - After API is stable, write thin client in JS that can call the API and display results in the browser
 
 ### WebAssembly module

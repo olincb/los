@@ -21,6 +21,32 @@ impl HighlighterService {
         HighlighterService { image_dpi }
     }
 
+    #[allow(clippy::too_many_arguments)] // Private helper, clippy can relax.
+    fn bilinearly_interpolate(
+        &self,
+        row: usize,
+        col: usize,
+        top_left: (f64, f64),
+        top_right: (f64, f64),
+        bottom_left: (f64, f64),
+        bottom_right: (f64, f64),
+        width: usize,
+        height: usize,
+    ) -> (f64, f64) {
+        let x_ratio = col as f64 / (width - 1) as f64;
+        let y_ratio = row as f64 / (height - 1) as f64;
+
+        let lat_top = top_left.0 * (1.0 - x_ratio) + top_right.0 * x_ratio;
+        let lon_top = top_left.1 * (1.0 - x_ratio) + top_right.1 * x_ratio;
+        let lat_bottom = bottom_left.0 * (1.0 - x_ratio) + bottom_right.0 * x_ratio;
+        let lon_bottom = bottom_left.1 * (1.0 - x_ratio) + bottom_right.1 * x_ratio;
+
+        let lat = lat_top * (1.0 - y_ratio) + lat_bottom * y_ratio;
+        let lon = lon_top * (1.0 - y_ratio) + lon_bottom * y_ratio;
+
+        (lat, lon)
+    }
+
     pub fn highlight_viewshed(
         &self,
         topo_map: &TopoMapDescriptor,
@@ -73,12 +99,23 @@ impl HighlighterService {
         println!("Applying viewshed to topo map...");
         let darken_factor = 0.6; // How much to darken non-visible pixels (0.0 = completely black, 1.0 = no change)
         let raster_size = dataset.raster_size();
+        let tl = geo_pixel_mapper.pixel_to_lat_lon(0, 0)?;
+        let tr = geo_pixel_mapper.pixel_to_lat_lon(raster_size.0 as isize - 1, 0)?;
+        let bl = geo_pixel_mapper.pixel_to_lat_lon(0, raster_size.1 as isize - 1)?;
+        let br = geo_pixel_mapper
+            .pixel_to_lat_lon(raster_size.0 as isize - 1, raster_size.1 as isize - 1)?;
         for col in 0..raster_size.0 {
             for row in 0..raster_size.1 {
-                // TODO: optimize by using pixel mapper only for corners of bbox,
-                // then interpolating lat/lon for intermediate pixels.
-                // Per-pixel CoordTransform is the bottleneck, most likely.
-                let (lat, lon) = geo_pixel_mapper.pixel_to_lat_lon(col as isize, row as isize)?;
+                let (lat, lon) = self.bilinearly_interpolate(
+                    row,
+                    col,
+                    tl,
+                    tr,
+                    bl,
+                    br,
+                    raster_size.0,
+                    raster_size.1,
+                );
                 let mut r = red_data[(row, col)];
                 let mut g = green_data[(row, col)];
                 let mut b = blue_data[(row, col)];
