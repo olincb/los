@@ -50,6 +50,8 @@ impl ElevationService {
     /// margin. This prevents multiple round-trips to the source and reader when requesting
     /// elevations for points that fall within the margin of the bounding box.
     pub fn prefetch_region(&mut self, bbox: &Bbox) -> Result<(), ElevationServiceError> {
+        // TODO: Save to disk by bbox and load from disk if already fetched, to avoid repeated
+        // fetching and reading of the same data across multiple runs of the program.
         let bbox = bbox.with_margin(self.prefetch_margin);
         if self.dem_location.is_none() {
             self.dem_location = Some(self.source.get_dem_for_bbox(&bbox)?);

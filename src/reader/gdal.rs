@@ -175,6 +175,8 @@ impl DemHandle for GdalDemHandle {
                 )));
             }
         };
+        // TODO: Use disk to cache prefetched regions by bbox, to avoid repeated fetching and
+        // reading of the same data across multiple runs of the program.
         self.cache = Some(PrefetchedRegion {
             bbox,
             width,

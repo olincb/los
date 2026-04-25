@@ -158,12 +158,13 @@ impl TopoSource for UsgsTopoMapSource {
                 "Failed to connect to SQLite database for USGS metadata: {e}"
             ))
         })?;
-        conn.query_one(
+        conn.query_row(
             "SELECT m.map_name, m.product_url, t.min_lon, t.max_lon, t.min_lat, t.max_lat
              FROM map_tiles t
              JOIN map_meta m
              ON t.id = m.rowid
-             WHERE t.min_lon <= ? AND t.max_lon >= ? AND t.min_lat <= ? AND t.max_lat >= ?;
+             WHERE t.min_lon <= ? AND t.max_lon >= ? AND t.min_lat <= ? AND t.max_lat >= ?
+             LIMIT 1;
             ",
             rusqlite::params![lon, lon, lat, lat],
             |row| {
@@ -201,6 +202,10 @@ impl TopoSource for UsgsTopoMapSource {
                     .ok_or_else(|| SourceError::Data(format!("Invalid URL for USGS map: {url}")))?;
                 let local_path = cache_dir.join(filename);
                 if local_path.exists() {
+                    println!(
+                        "USGS map already cached locally at {:?}, skipping download",
+                        local_path
+                    );
                     return Ok(local_path);
                 }
                 let resp = ureq::get(url).call().map_err(|e| {

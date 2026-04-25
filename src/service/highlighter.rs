@@ -34,7 +34,7 @@ impl HighlighterService {
 
         // Step 1: Get topo map dataset and geotransform
         println!(
-            "Rasterizing topo map from location: {:?}",
+            "Rasterizing topo map from location: {:?}...",
             topo_map.location
         );
         let dataset = match &topo_map.location {
@@ -48,12 +48,13 @@ impl HighlighterService {
         let dataset_to_wgs84 = CoordTransform::new(&dataset_srs, &wgs84)?;
         let geo_pixel_mapper = GeoPixelMapper::new(gt, dataset_to_wgs84, wgs84_to_dataset_srs);
         println!(
-            "Opened topo map with size {}x{}",
+            "Working on topo map with size {}x{}...",
             dataset.raster_size().0,
             dataset.raster_size().1
         );
 
         // Step 2: Get the RGB bands and hold them in memory.
+        println!("Reading RGB bands from topo map into memory...");
         let mut image = RgbaImage::new(
             dataset.raster_size().0 as u32,
             dataset.raster_size().1 as u32,
@@ -69,10 +70,14 @@ impl HighlighterService {
             blue_band.read_as::<u8>((0, 0), dataset.raster_size(), dataset.raster_size(), None)?;
 
         // Step 3: For each pixel, determine if it's visible in the viewshed. If not, darken the pixel.
+        println!("Applying viewshed to topo map...");
         let darken_factor = 0.6; // How much to darken non-visible pixels (0.0 = completely black, 1.0 = no change)
         let raster_size = dataset.raster_size();
         for col in 0..raster_size.0 {
             for row in 0..raster_size.1 {
+                // TODO: optimize by using pixel mapper only for corners of bbox,
+                // then interpolating lat/lon for intermediate pixels.
+                // Per-pixel CoordTransform is the bottleneck, most likely.
                 let (lat, lon) = geo_pixel_mapper.pixel_to_lat_lon(col as isize, row as isize)?;
                 let mut r = red_data[(row, col)];
                 let mut g = green_data[(row, col)];
@@ -88,14 +93,10 @@ impl HighlighterService {
             }
         }
         // Step 4: Put origin dot on map
-        println!("Transforming viewshed origin point to pixel coordinates...");
+        println!("Marking origin point on map...");
         let (origin_x, origin_y) =
             geo_pixel_mapper.lat_lon_to_pixel(viewshed.origin_lat, viewshed.origin_lon)?;
 
-        println!(
-            "Marking origin point on map at pixel coordinates ({}, {})",
-            origin_x, origin_y
-        );
         let r = 10; // radius of origin dot in pixels
         for dy in -r..=r {
             for dx in -r..=r {

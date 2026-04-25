@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 anyhow = "1.0"
+axum = "0.8.9"
 clap = { version = "4.6", features = ["derive"] }
 csv = "1.4"
 # gdal = { version = "0.19", optional = true }
@@ -18,11 +19,20 @@ rusqlite = "0.39"
 serde = { version = "1.0", features = ["derive"] }
 terminal_size = "0.4.4"
 thiserror = "2"
+tokio = { version = "1.52.1", features = ["macros", "rt-multi-thread"] }
 ureq = "3.3"
 zip = "8.5"
 
 [dev-dependencies]
 rstest = "0.26"
+
+[[bin]]
+name = "los"
+path = "src/main.rs"
+
+[[bin]]
+name = "los-server"
+path = "src/bin/server/main.rs"
 
 # [features]
 # default = []
