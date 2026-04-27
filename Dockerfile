@@ -25,5 +25,6 @@ RUN cargo build --release --bin los-server
 FROM ghcr.io/osgeo/gdal:alpine-small-latest
 WORKDIR /app
 COPY --from=builder /app/target/release/los-server .
+RUN ldd ./los-server
 ENV HOST=0.0.0.0
 CMD ["./los-server"]
