@@ -1,6 +1,15 @@
-# Build
-FROM ghcr.io/osgeo/gdal:ubuntu-small-latest AS builder
+# Base
+FROM ghcr.io/osgeo/gdal:ubuntu-small-latest AS base
 WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgdal38 \
+    libsqlite3-0 \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Build
+FROM base AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
@@ -8,7 +17,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config \
     libgdal-dev \
     libsqlite3-dev \
-    ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
@@ -28,8 +36,7 @@ COPY src ./src
 RUN cargo clean --release -p los && cargo build --release --locked --bin los-server
 
 # Runtime
-FROM ghcr.io/osgeo/gdal:ubuntu-small-latest
-WORKDIR /app
+FROM base AS runtime
 COPY --from=builder /app/target/release/los-server .
 RUN ldd ./los-server
 ENV HOST=0.0.0.0
