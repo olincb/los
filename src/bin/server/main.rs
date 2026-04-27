@@ -2,14 +2,16 @@ mod api;
 
 use api::highlight;
 use axum::{
+    Json,
     Router,
     extract::Query,
     http::{StatusCode, header},
     response::IntoResponse,
     routing::get,
 };
+use tower_http::services::{ServeDir, ServeFile};
 use image::ImageFormat;
-use serde::Deserialize;
+use serde::{ Deserialize, Serialize };
 use std::io::Cursor;
 
 #[derive(Deserialize)]
@@ -18,11 +20,23 @@ struct HighlightParams {
     lon: f64,
 }
 
+#[derive(Serialize)]
+struct ApiError {
+    error: &'static str,
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    let api = Router::new()
+        .route("/health", get(health))
+        .route("/highlight", get(highlight))
+        .fallback(api_not_found);
+    let static_dir = std::env::var("STATIC_DIR").unwrap_or_else(|_| "static".to_string());
     let app = Router::new()
-        .route("/api/v1/health", get(health))
-        .route("/api/v1/highlight", get(highlight));
+        .nest("/api/v1", api)
+        .route_service("/", ServeFile::new(format!("{static_dir}/index.html")))
+        .nest_service("/static", ServeDir::new(static_dir))
+        .fallback(page_not_found);
 
     let host = std::env::var("HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
     let port = std::env::var("PORT").unwrap_or_else(|_| "3000".to_string());
@@ -33,6 +47,19 @@ async fn main() -> anyhow::Result<()> {
     axum::serve(listener, app).await?;
     Ok(())
 }
+
+async fn api_not_found() -> impl IntoResponse {
+    (StatusCode::NOT_FOUND, Json(ApiError { error: "Endpoint not found" }))
+}
+
+async fn page_not_found() -> impl IntoResponse {
+    (
+        StatusCode::NOT_FOUND,
+        [(header::CONTENT_TYPE, "text/html")],
+        include_str!("static/404.html"),
+    )
+}
+
 
 async fn health() -> &'static str {
     println!("GET /api/v1/health");
