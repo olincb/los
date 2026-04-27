@@ -12,8 +12,8 @@ ENV PATH="/root/.cargo/bin:${PATH}"
 COPY Cargo.toml Cargo.lock ./
 # Build dummy project to cache dependencies
 RUN mkdir -p src/bin/server && \
-    echo "fn main() {}" > src/main.rs && \
-    echo "fn main() {}" > src/bin/server/main.rs && \
+    echo 'fn main() { println!("dummy main"); }' > src/main.rs && \
+    echo 'fn main() { println!("dummy server"); }' > src/bin/server/main.rs && \
     touch src/lib.rs
 RUN cargo build --release
 
