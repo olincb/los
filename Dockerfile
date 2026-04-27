@@ -15,11 +15,11 @@ RUN mkdir -p src/bin/server && \
     echo 'fn main() { println!("dummy main"); }' > src/main.rs && \
     echo 'fn main() { println!("dummy server"); }' > src/bin/server/main.rs && \
     touch src/lib.rs
-RUN cargo build --release
+RUN cargo build --release --locked --bin los-server
 
 # Now copy the actual source code and build the real project
 COPY src ./src
-RUN cargo build --release --bin los-server
+RUN cargo clean --release -p los && cargo build --release --locked --bin los-server
 
 # Runtime
 FROM ghcr.io/osgeo/gdal:alpine-small-latest
