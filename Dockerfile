@@ -1,9 +1,15 @@
 # Build
-FROM ghcr.io/osgeo/gdal:alpine-small-latest AS builder
+FROM ghcr.io/osgeo/gdal:ubuntu-small-latest AS builder
 WORKDIR /app
 
-# Rust toolchain
-RUN apk add --no-cache curl build-base gdal-dev
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    build-essential \
+    pkg-config \
+    libgdal-dev \
+    libsqlite3-dev \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 ENV PATH="/root/.cargo/bin:${PATH}"
@@ -22,7 +28,7 @@ COPY src ./src
 RUN cargo clean --release -p los && cargo build --release --locked --bin los-server
 
 # Runtime
-FROM ghcr.io/osgeo/gdal:alpine-small-latest
+FROM ghcr.io/osgeo/gdal:ubuntu-small-latest
 WORKDIR /app
 COPY --from=builder /app/target/release/los-server .
 RUN ldd ./los-server
