@@ -1,0 +1,90 @@
+body {
+    font-family: Arial, sans-serif;
+    background-color: #f8f8f8;
+    margin: 0;
+}
+main {
+    display: flex;
+    min-height: 100vh;
+}
+h1 {
+    font-size: 3em;
+    color: #333;
+    margin-block: 0.67em;
+    margin-bottom: 0.1rem;
+}
+.subtitle {
+    color: #666;
+    font-size: 1.5rem;
+    line-height: 1.25;
+    margin: 0 0 2rem;
+}
+#mapContainer p {
+    font-size: 1.5rem;
+    color: #666;
+}
+#mapContainer {
+    box-sizing: border-box;
+    flex: 1 1 auto;
+    width: 75vw;
+    max-width: 75vw;
+    min-width: 0;
+    height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    font-size: 1.5em;
+    color: #666;
+}
+#mapContainer img {
+    display: block;
+    max-width: 100%;
+    max-height: 100vh;
+    width: auto;
+    height: auto;
+    object-fit: contain;
+}
+#controls {
+    box-sizing: border-box;
+    width: 25vw;
+    flex: 0 0 25vw;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 0.75rem;
+    padding: 2rem;
+}
+input[type="number"] {
+    appearance: textfield;
+    -moz-appearance: textfield;
+}
+
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+@media (max-width: 800px) {
+    main {
+        flex-direction: column;
+        min-height: auto;
+    }
+    #controls {
+        width: 100%;
+        flex: none;
+        justify-content: flex-start;
+        padding: 1rem;
+    }
+    #mapContainer {
+        width: 100%;
+        max-width: none;
+        height: auto;
+        min-height: 50vh;
+    }
+    #mapContainer img {
+        max-height: 60vh;
+    }
+}
