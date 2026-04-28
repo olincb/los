@@ -38,6 +38,7 @@ RUN cargo clean --release -p los && cargo build --release --locked --bin los-ser
 # Runtime
 FROM base AS runtime
 COPY --from=builder /app/target/release/los-server .
+COPY --from=builder /app/src/bin/server/static ./static
 RUN ldd ./los-server
 ENV HOST=0.0.0.0
 CMD ["./los-server"]
