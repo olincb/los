@@ -2,17 +2,16 @@ mod api;
 
 use api::highlight;
 use axum::{
-    Json,
-    Router,
+    Json, Router,
     extract::Query,
     http::{StatusCode, header},
     response::IntoResponse,
     routing::get,
 };
-use tower_http::services::{ServeDir, ServeFile};
 use image::ImageFormat;
-use serde::{ Deserialize, Serialize };
+use serde::{Deserialize, Serialize};
 use std::io::Cursor;
+use tower_http::services::{ServeDir, ServeFile};
 
 #[derive(Deserialize)]
 struct HighlightParams {
@@ -50,7 +49,12 @@ async fn main() -> anyhow::Result<()> {
 }
 
 async fn api_not_found() -> impl IntoResponse {
-    (StatusCode::NOT_FOUND, Json(ApiError { error: "Endpoint not found" }))
+    (
+        StatusCode::NOT_FOUND,
+        Json(ApiError {
+            error: "Endpoint not found",
+        }),
+    )
 }
 
 async fn page_not_found() -> impl IntoResponse {
@@ -69,7 +73,6 @@ async fn im_a_teapot() -> impl IntoResponse {
     )
 }
 
-
 async fn health() -> &'static str {
     println!("GET /api/v1/health");
     "ok"
@@ -80,11 +83,19 @@ async fn highlight(Query(params): Query<HighlightParams>) -> Result<impl IntoRes
         "GET /api/v1/highlight with lat={}, lon={}",
         params.lat, params.lon
     );
+    let lat = params.lat;
+    let lon = params.lon;
     let image =
-        highlight::handle_highlight_endpoint_command(params.lat, params.lon).map_err(|e| {
-            eprintln!("Error handling highlight endpoint command: {e}");
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+        tokio::task::spawn_blocking(move || highlight::handle_highlight_endpoint_command(lat, lon))
+            .await
+            .map_err(|e| {
+                eprintln!("Highlight worker task failed: {e}");
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?
+            .map_err(|e| {
+                eprintln!("Error generating highlight image: {e}");
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
 
     let mut buf = Cursor::new(Vec::new());
     image.write_to(&mut buf, ImageFormat::Png).map_err(|e| {
