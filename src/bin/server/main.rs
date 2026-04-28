@@ -35,6 +35,7 @@ async fn main() -> anyhow::Result<()> {
     let app = Router::new()
         .nest("/api/v1", api)
         .route_service("/", ServeFile::new(format!("{static_dir}/index.html")))
+        .route_service("/coffee", get(im_a_teapot))
         .nest_service("/static", ServeDir::new(static_dir))
         .fallback(page_not_found);
 
@@ -57,6 +58,14 @@ async fn page_not_found() -> impl IntoResponse {
         StatusCode::NOT_FOUND,
         [(header::CONTENT_TYPE, "text/html")],
         include_str!("static/404.html"),
+    )
+}
+
+async fn im_a_teapot() -> impl IntoResponse {
+    (
+        StatusCode::IM_A_TEAPOT,
+        [(header::CONTENT_TYPE, "text/html")],
+        include_str!("static/418.html"),
     )
 }
 
