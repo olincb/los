@@ -17,5 +17,5 @@ primary_region = 'ewr'
   processes = ['app']
 
 [[vm]]
+  size = "performance-2x"
   memory = '2gb'
-  cpus = 2
