@@ -4,32 +4,43 @@ function loadMap() {
     const container = document.getElementById('mapContainer');
 
     if (!Number.isFinite(lat) || lat < -90 || lat > 90) {
-        container.textContent = "Latitude must be a number between -90 and 90.";
+        setMapMessage("Latitude must be a number between -90 and 90.");
         return;
     }
     if (!Number.isFinite(lon) || lon < -180 || lon > 180) {
-        container.textContent = "Longitude must be a number between -180 and 180.";
+        setMapMessage("Longitude must be a number between -180 and 180.");
         return;
     }
 
     const params = new URLSearchParams({ lat: String(lat), lon: String(lon) });
+    const surface = document.createElement("div");
+    surface.className = "panzoom-surface";
+
     const img = document.createElement('img');
     img.alt = `Highlighted line-of-sight for lat: ${lat}, lon: ${lon}`;
     img.src = `/api/v1/highlight?${params}`;
-    img.className = 'fit';
-    img.title = "Click to toggle full-size/size-to-fit.";
-    img.addEventListener('click', () => {
-        img.classList.toggle('fit');
-        img.classList.toggle('full-size');
-    });
+    surface.appendChild(img);
 
-    container.textContent = 'Loading map. This may take up to a minute.';
+    setMapMessage("Loading map. This may take up to a minute.");
     img.onload = () => {
-        container.replaceChildren(img);
+        container.replaceChildren(surface);
+        const panzoom = Panzoom(surface, {
+            maxScale: 8,
+            minScale: 0.5,
+            contain: 'outside',
+        });
+        container.addEventListener('wheel', panzoom.zoomWithWheel);
     };
     img.onerror = () => {
-        container.textContent = "Failed to load the map image. Please try again.";
+        setMapMessage("Failed to load the map image. Please try again.");
     };
+}
+
+function setMapMessage(message) {
+    const container = document.getElementById('mapContainer');
+    const p = document.createElement('p');
+    p.textContent = message;
+    container.replaceChildren(p);
 }
 
 function getLocation() {

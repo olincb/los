@@ -25,7 +25,7 @@
                 of any location in the US.
             </p>
             <a class="github-source" href="https://github.com/olincb/los">View source on GitHub</a>
-            <div style="height: 2rem;"></div>
+            <div class="spacer"></div>
             <label>
                 Latitude
                 <input
@@ -56,6 +56,7 @@
                 <button onclick="getLocation()">Use My Location</button>
                 <button onclick="randomizeLocation()">Random</button>
             </div>
+            <div class="spacer"></div>
             <button onclick="loadMap()">Highlight</button>
         </section>
         <div id="mapContainer" aria-live="polite">
@@ -63,6 +64,7 @@
         </div>
     </main>
 
+    <script src="https://unpkg.com/@panzoom/panzoom@4.6.0/dist/panzoom.min.js"></script>
     <script src="/static/mapControls.js"></script>
 </body>
 </html>

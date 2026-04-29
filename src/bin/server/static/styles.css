@@ -30,47 +30,50 @@ a {
     align-items: center;
     color: #999;
 }
-#mapContainer p {
-    font-size: 1.5rem;
-    color: #666;
+.spacer {
+    height: 2rem;
 }
 #mapContainer {
     box-sizing: border-box;
     flex: 1 1 auto;
     width: 75vw;
     max-width: 75vw;
-    min-width: 0;
     height: 100vh;
     display: flex;
     align-items: center;
     justify-content: center;
-    overflow: auto;
-    font-size: 1.5em;
+    overflow: hidden;
+    touch-action: none;
+}
+#mapContainer p {
+    margin: 1rem;
+    font-size: 1.5rem;
     color: #666;
 }
-#mapContainer:has(img.fit),
-#mapContainer:not(:has(img)) {
-    align-items: center;
-    justify-content: center;
-}
-#mapContainer:has(img.full-size) {
-    align-items: flex-start;
-    justify-content: flex-start;
-}
-#mapContainer img.fit {
+#mapContainer img {
     display: block;
     max-width: 100%;
-    max-height: 100vh;
+    max-height: 100%;
     width: auto;
     height: auto;
     object-fit: contain;
+    user-select: none;
+    -webkit-user-drag: none;
 }
-#mapContainer img.full-size {
+.panzoom-surface {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.panzoom-surface img {
     display: block;
-    max-width: none;
-    max-height: none;
-    width: auto;
-    height: auto;
+    max-width: 100%;
+    max-height: 100%;
+    user-select: none;
+    -webkit-user-drag: none;
+    pointer-events: none;
 }
 #controls {
     box-sizing: border-box;
@@ -99,13 +102,15 @@ input[type="number"]::-webkit-inner-spin-button {
     gap: 0.5rem;
     align-items: center;
     flex-wrap: wrap;
-    margin-bottom: 2rem;
 }
 
 @media (max-width: 800px) {
     main {
         flex-direction: column;
         min-height: auto;
+    }
+    .spacer {
+        height: 0.25rem;
     }
     #controls {
         width: 100%;
@@ -116,10 +121,15 @@ input[type="number"]::-webkit-inner-spin-button {
     #mapContainer {
         width: 100%;
         max-width: none;
-        height: auto;
-        min-height: 50vh;
+        height: 65vh;
+        min-height: 20rem;
     }
-    #mapContainer img {
-        max-height: 60vh;
+    .panzoom-surface {
+        width: 100%;
+        height: 100%;
+    }
+    .panzoom-surface img {
+        max-width: 100%;
+        max-height: 100%;
     }
 }
