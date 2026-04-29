@@ -43,6 +43,10 @@
                     autocomplete="off"
                 >
             </label>
+            <div class="button-row">
+                <button onclick="getLocation()">Use My Location</button>
+                <button onclick="randomizeLocation()">Random</button>
+            </div>
             <button onclick="loadMap()">Highlight</button>
         </section>
         <div id="mapContainer" aria-live="polite">
@@ -50,6 +54,6 @@
         </div>
     </main>
 
-    <script src="/static/loadMap.js"></script>
+    <script src="/static/mapControls.js"></script>
 </body>
 </html>
