@@ -16,6 +16,12 @@ function loadMap() {
     const img = document.createElement('img');
     img.alt = `Highlighted line-of-sight for lat: ${lat}, lon: ${lon}`;
     img.src = `/api/v1/highlight?${params}`;
+    img.className = 'fit';
+    img.title = "Click to toggle full-size/size-to-fit.";
+    img.addEventListener('click', () => {
+        img.classList.toggle('fit');
+        img.classList.toggle('full-size');
+    });
 
     container.textContent = 'Loading map. This may take up to a minute.';
     img.onload = () => {
