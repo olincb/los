@@ -1,4 +1,5 @@
 use super::common::{ReaderType, SourceType, build_elevation_service};
+use los::Bbox;
 
 pub fn handle_elevation_command(
     reader_type: ReaderType,
@@ -9,7 +10,8 @@ pub fn handle_elevation_command(
     lon: f64,
 ) -> anyhow::Result<()> {
     let elevation_service = build_elevation_service(reader_type, source_type, local_dem, url_dem)?;
-    let elevation = elevation_service.elevation_at(lat, lon)?;
+    let elevation_provider = elevation_service.fetch_region(Bbox::single_point(lat, lon))?;
+    let elevation = elevation_provider.elevation_at(lat, lon)?;
     println!(
         "Elevation at ({}, {}): {:.2} m ({:.2} ft)",
         lat, lon, elevation.m, elevation.ft

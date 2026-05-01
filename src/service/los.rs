@@ -1,9 +1,7 @@
-use crate::{Bbox, Elevation};
+use crate::Bbox;
+use crate::reader::DemHandle;
+use rayon::prelude::*;
 use std::fmt;
-
-pub trait ElevationProvider {
-    fn elevation_at(&self, lat: f64, lon: f64) -> Result<Elevation, anyhow::Error>;
-}
 
 pub enum LineOfSightResult {
     Clear,
@@ -79,7 +77,7 @@ impl ViewshedGrid {
 }
 
 pub struct LineOfSightService {
-    elevation_provider: Box<dyn ElevationProvider>,
+    elevation_provider: Box<dyn DemHandle>,
     max_step_degrees: f64,
     tolerance_m: f64, // How much higher the terrain must be than the sightline
                       // to be considered a blocker, in meters. This is to account for noise in
@@ -88,10 +86,10 @@ pub struct LineOfSightService {
 }
 
 impl LineOfSightService {
-    pub fn new(elevation_provider: Box<dyn ElevationProvider>) -> Self {
+    pub fn new(dem_handle: Box<dyn DemHandle>) -> Self {
         // TODO: configurable step size (based off DEM resolution?)
         LineOfSightService {
-            elevation_provider,
+            elevation_provider: dem_handle,
             max_step_degrees: 1.0 / 3600.0 / 3.0, // 1/3 arcsecond in degrees
             tolerance_m: 2.0,                     // USGS 3DEP has ~1-2m vertical accuracy
         }
@@ -172,15 +170,19 @@ impl LineOfSightService {
         let lon_step = bbox.width() / (cols - 1) as f64;
         let lat_step = bbox.height() / (rows - 1) as f64;
 
-        let mut data = Vec::with_capacity(rows * cols);
-        for y in 0..rows {
-            let point_lat = bbox.max_lat - y as f64 * lat_step;
-            for x in 0..cols {
+        let data = (0..rows * cols)
+            .into_par_iter()
+            .map(|i| {
+                let y = i / cols;
+                let x = i % cols;
+                let point_lat = bbox.max_lat - y as f64 * lat_step;
                 let point_lon = bbox.min_lon + x as f64 * lon_step;
-                let los = self.has_line_of_sight_with_height(lat, lon, point_lat, point_lon, vh)?;
-                data.push(los.is_clear());
-            }
-        }
+                self.has_line_of_sight_with_height(lat, lon, point_lat, point_lon, vh)
+                    .map(|los| los.is_clear())
+                    .unwrap_or(false) // Treat errors as non-visible points
+            })
+            .collect();
+
         Ok(ViewshedGrid {
             origin_lat: lat,
             origin_lon: lon,
@@ -254,19 +256,21 @@ impl LineOfSightService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Elevation;
+    use crate::reader::DemReaderError;
 
     /// Always returns the same elevation, regardless of lat/lon.
     struct FlatElevation;
-    impl ElevationProvider for FlatElevation {
-        fn elevation_at(&self, _lat: f64, _lon: f64) -> Result<Elevation, anyhow::Error> {
+    impl DemHandle for FlatElevation {
+        fn elevation_at(&self, _lat: f64, _lon: f64) -> Result<Elevation, DemReaderError> {
             Ok(Elevation::from_m(100.0))
         }
     }
 
     /// Puts a 1-degree-wide wall at the equator, doubling the elevation
     struct WallElevation;
-    impl ElevationProvider for WallElevation {
-        fn elevation_at(&self, lat: f64, _lon: f64) -> Result<Elevation, anyhow::Error> {
+    impl DemHandle for WallElevation {
+        fn elevation_at(&self, lat: f64, _lon: f64) -> Result<Elevation, DemReaderError> {
             if lat.abs() < 0.5 {
                 Ok(Elevation::from_m(1000.0))
             } else {
@@ -277,8 +281,8 @@ mod tests {
 
     /// Equator has a v-shaped valley, with the lowest point at the equator itself.
     struct ValleyElevation;
-    impl ElevationProvider for ValleyElevation {
-        fn elevation_at(&self, lat: f64, _lon: f64) -> Result<Elevation, anyhow::Error> {
+    impl DemHandle for ValleyElevation {
+        fn elevation_at(&self, lat: f64, _lon: f64) -> Result<Elevation, DemReaderError> {
             Ok(Elevation::from_m(100.0 + lat.abs() * 1000.0))
         }
     }
@@ -286,8 +290,8 @@ mod tests {
     /// Ramp function that is 100m below the equator and 0m at 1 degree north, with a linear slope
     /// in between.
     struct RampElevation;
-    impl ElevationProvider for RampElevation {
-        fn elevation_at(&self, lat: f64, _lon: f64) -> Result<Elevation, anyhow::Error> {
+    impl DemHandle for RampElevation {
+        fn elevation_at(&self, lat: f64, _lon: f64) -> Result<Elevation, DemReaderError> {
             match lat {
                 l if l < 0.0 => Ok(Elevation::from_m(100.0)),
                 l if l > 1.0 => Ok(Elevation::from_m(0.0)),

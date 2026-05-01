@@ -6,7 +6,7 @@ use gdal::spatial_ref::CoordTransform;
 pub struct GdalReader;
 
 impl DemReader for GdalReader {
-    fn open(&self, loc: &Location) -> Result<Box<dyn DemHandle>, DemReaderError> {
+    fn open(&self, loc: &Location, bbox: Bbox) -> Result<Box<dyn DemHandle>, DemReaderError> {
         // GDAL can handle both local paths and remote URLs.
         let dataset = match loc {
             Location::LocalPath(path) => gdal::Dataset::open(path),
@@ -31,21 +31,76 @@ impl DemReader for GdalReader {
                 )));
             }
         };
-        Ok(Box::new(GdalDemHandle {
-            dataset,
+        Ok(Box::new(self.prefetch_region(
+            bbox,
+            &dataset,
             geo_transform,
-            cache: None,
-        }))
+        )?))
+    }
+}
+
+impl GdalReader {
+    fn prefetch_region(
+        &self,
+        bbox: Bbox,
+        dataset: &gdal::Dataset,
+        geo_transform: [f64; 6],
+    ) -> Result<GdalDemHandle, DemReaderError> {
+        let band = match dataset.rasterband(1) {
+            Ok(band) => band,
+            Err(e) => {
+                return Err(DemReaderError::Gdal(format!(
+                    "Could not get raster band from dataset due to: {}",
+                    e,
+                )));
+            }
+        };
+        let (origin_px, origin_py) = geo_coord_to_pixel(bbox.min_lon, bbox.max_lat, &geo_transform);
+        let (max_px, max_py) = geo_coord_to_pixel(bbox.max_lon, bbox.min_lat, &geo_transform);
+        // If width or height are 0, it means the bbox is smaller than the pixel size of
+        // the dataset, so we need to read at least 1 pixel in each dimension to get an
+        // elevation value.
+        let width = (max_px - origin_px).max(1) as usize;
+        let height = (max_py - origin_py).max(1) as usize;
+        let (raster_width, raster_height) = dataset.raster_size();
+        if origin_px < 0
+            || origin_py < 0
+            || (origin_px as usize) + width > raster_width
+            || (origin_py as usize) + height > raster_height
+        {
+            return Err(DemReaderError::OutOfBounds(format!(
+                "Calculated pixel coordinates for bbox are out of bounds of the dataset raster size (width: {}, height: {}). Calculated origin pixel: ({}, {}), max pixel: ({}, {}).",
+                raster_width, raster_height, origin_px, origin_py, max_px, max_py,
+            )));
+        }
+        let buf = match band.read_as::<f32>(
+            (origin_px, origin_py),
+            (width, height),
+            (width, height),
+            None,
+        ) {
+            Ok(buf) => buf,
+            Err(e) => {
+                return Err(DemReaderError::Gdal(format!(
+                    "Could not read raster data for prefetch region due to: {}",
+                    e,
+                )));
+            }
+        };
+        // TODO: Use disk to cache prefetched regions by bbox, to avoid repeated fetching and
+        // reading of the same data across multiple runs of the program.
+        Ok(GdalDemHandle {
+            geo_transform,
+            bbox,
+            width,
+            height,
+            data: buf.data().to_vec(),
+        })
     }
 }
 
 pub struct GdalDemHandle {
-    dataset: gdal::Dataset,
     geo_transform: [f64; 6],
-    cache: Option<PrefetchedRegion>,
-}
-
-struct PrefetchedRegion {
     bbox: Bbox,
     width: usize,
     height: usize,
@@ -119,13 +174,17 @@ pub fn apply_coord_transform(
     Ok((xs[0], ys[0]))
 }
 
-impl PrefetchedRegion {
-    fn elevation_at(&self, lat: f64, lon: f64, gt: &[f64; 6]) -> Option<Elevation> {
+impl DemHandle for GdalDemHandle {
+    fn elevation_at(&self, lat: f64, lon: f64) -> Result<Elevation, DemReaderError> {
         if !self.bbox.contains(lat, lon) {
-            return None;
+            return Err(DemReaderError::OutOfBounds(format!(
+                "Coordinates ({}, {}) are out of bounds for prefetched region with bbox {}.",
+                lat, lon, self.bbox,
+            )));
         }
-        let (px, py) = geo_coord_to_pixel(lon, lat, gt);
-        let (origin_px, origin_py) = geo_coord_to_pixel(self.bbox.min_lon, self.bbox.max_lat, gt);
+        let (px, py) = geo_coord_to_pixel(lon, lat, &self.geo_transform);
+        let (origin_px, origin_py) =
+            geo_coord_to_pixel(self.bbox.min_lon, self.bbox.max_lat, &self.geo_transform);
         let local_px = px - origin_px;
         let local_py = py - origin_py;
         if local_px < 0
@@ -133,94 +192,20 @@ impl PrefetchedRegion {
             || (local_px as usize) >= self.width
             || (local_py as usize) >= self.height
         {
-            return None;
+            return Err(DemReaderError::OutOfBounds(format!(
+                "Calculated local pixel coordinates ({}, {}) are out of bounds for prefetched region with width {} and height {}.",
+                local_px, local_py, self.width, self.height,
+            )));
         }
         let idx = (local_py as usize) * self.width + (local_px as usize);
         if idx >= self.data.len() {
-            return None;
-        }
-        Some(Elevation::from_m(self.data[idx] as f64))
-    }
-}
-
-impl DemHandle for GdalDemHandle {
-    /// Prime the Handle for multiple upcoming elevation queries within the
-    /// specified bounding box by reading the relevant raster data into memory.
-    fn prefetch_region(&mut self, bbox: Bbox) -> Result<(), DemReaderError> {
-        let band = match self.dataset.rasterband(1) {
-            Ok(band) => band,
-            Err(e) => {
-                return Err(DemReaderError::Gdal(format!(
-                    "Could not get raster band from dataset due to: {}",
-                    e,
-                )));
-            }
-        };
-        let (origin_px, origin_py) =
-            geo_coord_to_pixel(bbox.min_lon, bbox.max_lat, &self.geo_transform);
-        let (max_px, max_py) = geo_coord_to_pixel(bbox.max_lon, bbox.min_lat, &self.geo_transform);
-        let width = (max_px - origin_px) as usize;
-        let height = (max_py - origin_py) as usize;
-        let buf = match band.read_as::<f32>(
-            (origin_px, origin_py),
-            (width, height),
-            (width, height),
-            None,
-        ) {
-            Ok(buf) => buf,
-            Err(e) => {
-                return Err(DemReaderError::Gdal(format!(
-                    "Could not read raster data for prefetch region due to: {}",
-                    e,
-                )));
-            }
-        };
-        // TODO: Use disk to cache prefetched regions by bbox, to avoid repeated fetching and
-        // reading of the same data across multiple runs of the program.
-        self.cache = Some(PrefetchedRegion {
-            bbox,
-            width,
-            height,
-            data: buf.data().to_vec(),
-        });
-        Ok(())
-    }
-
-    fn elevation_at(&self, lat: f64, lon: f64) -> Result<Elevation, DemReaderError> {
-        if let Some(elev) = self
-            .cache
-            .as_ref()
-            .and_then(|region| region.elevation_at(lat, lon, &self.geo_transform))
-        {
-            return Ok(elev);
-        }
-        let band = match self.dataset.rasterband(1) {
-            Ok(band) => band,
-            Err(e) => {
-                return Err(DemReaderError::Gdal(format!(
-                    "Could not get raster band from dataset due to: {}",
-                    e,
-                )));
-            }
-        };
-        let (px, py) = geo_coord_to_pixel(lon, lat, &self.geo_transform);
-        let (width, height) = self.dataset.raster_size();
-        if px < 0 || py < 0 || (px as usize) >= width || (py as usize) >= height {
             return Err(DemReaderError::OutOfBounds(format!(
-                "Coordinates ({}, {}) are out of bounds for dataset",
-                lat, lon,
+                "Calculated index {} is out of bounds for prefetched data with length {}.",
+                idx,
+                self.data.len()
             )));
         }
-        let buf = match band.read_as::<f32>((px, py), (1, 1), (1, 1), None) {
-            Ok(buf) => buf,
-            Err(e) => {
-                return Err(DemReaderError::Gdal(format!(
-                    "Could not read raster data at ({}, {}) due to: {}",
-                    lat, lon, e,
-                )));
-            }
-        };
-        Ok(Elevation::from_m(buf.data()[0] as f64))
+        Ok(Elevation::from_m(self.data[idx] as f64))
     }
 }
 
@@ -228,10 +213,10 @@ impl DemHandle for GdalDemHandle {
 mod tests {
     use super::*;
 
-    fn make_test_region() -> (PrefetchedRegion, [f64; 6]) {
+    fn make_test_handle() -> GdalDemHandle {
         // 4x3 grid, origin at (-90.0, 45.0), 1 degree per pixel
-        let gt = [-90.0, 1.0, 0.0, 45.0, 0.0, -1.0];
-        let region = PrefetchedRegion {
+        GdalDemHandle {
+            geo_transform: [-90.0, 1.0, 0.0, 45.0, 0.0, -1.0],
             bbox: Bbox {
                 min_lon: -90.0,
                 max_lon: -86.0,
@@ -244,21 +229,20 @@ mod tests {
                 100.0, 200.0, 300.0, 400.0, 500.0, 600.0, 700.0, 800.0, 900.0, 1000.0, 1100.0,
                 1200.0,
             ],
-        };
-        (region, gt)
+        }
     }
 
     #[test]
     fn cache_hit() {
-        let (region, gt) = make_test_region();
-        let elev = region.elevation_at(44.5, -89.5, &gt);
-        assert!(elev.is_some());
+        let handle = make_test_handle();
+        let elev = handle.elevation_at(44.5, -89.5);
+        assert!(elev.is_ok());
     }
 
     #[test]
     fn cache_miss_out_of_bounds() {
-        let (region, gt) = make_test_region();
-        let elev = region.elevation_at(50.0, -89.0, &gt);
-        assert!(elev.is_none());
+        let handle = make_test_handle();
+        let elev = handle.elevation_at(50.0, -89.0);
+        assert!(elev.is_err());
     }
 }

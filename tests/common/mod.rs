@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 use los::source::Location;
-use los::{DemReader, DemReaderError, ElevationService};
+use los::{Bbox, DemReader, DemReaderError, ElevationService};
 use std::path::PathBuf;
 
 pub const SAMPLE_POINT_1: (f64, f64, f64) = (40.2468642, -105.5959595, 3897.397);
@@ -30,7 +30,8 @@ pub fn assert_reader_returns_expected_elevation<R: DemReader>(
     expected_elevation: f64,
 ) {
     let desc = local_dem_descriptor("sample_dem.tif");
-    let handle = reader.open(&desc).expect("Failed to open DEM");
+    let bbox = los::Bbox::single_point(lat, lon);
+    let handle = reader.open(&desc, bbox).expect("Failed to open DEM");
     let elevation = handle
         .elevation_at(lat, lon)
         .expect("Failed to get elevation");
@@ -44,13 +45,21 @@ pub fn assert_reader_returns_expected_elevation<R: DemReader>(
 
 pub fn assert_reader_returns_out_of_bounds<R: DemReader>(reader: &R, lat: f64, lon: f64) {
     let desc = local_dem_descriptor("sample_dem.tif");
-    let handle = reader.open(&desc).expect("Failed to open DEM");
-    let result = handle.elevation_at(lat, lon);
-    assert!(
-        matches!(result, Err(DemReaderError::OutOfBounds(_))),
-        "Expected OutOfBounds error, got {:?}",
-        result
-    );
+    let bbox = Bbox::single_point(lat, lon);
+    let handle = reader.open(&desc, bbox);
+    match handle {
+        Ok(handle) => {
+            panic!(
+                "Expected OutOfBounds error, but reader opened successfully and returned elevation: {} m",
+                handle.elevation_at(lat, lon).unwrap().m
+            )
+        }
+        Err(e) => assert!(
+            matches!(e, DemReaderError::OutOfBounds(_)),
+            "Expected OutOfBounds error, got different error: {}",
+            e
+        ),
+    }
 }
 
 pub fn build_test_elevation_service() -> ElevationService {

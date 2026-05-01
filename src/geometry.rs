@@ -37,6 +37,15 @@ impl Bbox {
             max_lon: self.max_lon + margin,
         }
     }
+
+    pub fn single_point(lat: f64, lon: f64) -> Self {
+        Bbox {
+            min_lat: lat,
+            min_lon: lon,
+            max_lat: lat,
+            max_lon: lon,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

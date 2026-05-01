@@ -8,7 +8,7 @@ pub fn handle_sightline_command(
     target_lat: f64,
     target_lon: f64,
 ) -> anyhow::Result<()> {
-    let mut elevation_service =
+    let elevation_service =
         build_elevation_service(ReaderType::Gdal, SourceType::Usgs, None, None)?;
     let bbox = Bbox {
         min_lat: lat.min(target_lat),
@@ -16,8 +16,8 @@ pub fn handle_sightline_command(
         min_lon: lon.min(target_lon),
         max_lon: lon.max(target_lon),
     };
-    elevation_service.prefetch_region(&bbox)?;
-    let los_service = LineOfSightService::new(Box::new(elevation_service));
+    let elevation_provider = elevation_service.fetch_region(bbox)?;
+    let los_service = LineOfSightService::new(elevation_provider);
     let viewer_height_m = 2.0; // Giving the caller the benefit of the doubt.
     let t0 = std::time::Instant::now();
     match los_service.has_line_of_sight_with_height(

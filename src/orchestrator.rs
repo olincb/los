@@ -12,7 +12,7 @@ pub fn highlight(
     lon: f64,
     viewer_height_m: f64,
     resolution_deg: f64,
-    mut elevation_service: ElevationService,
+    elevation_service: ElevationService,
     map_source: &dyn TopoSource,
 ) -> anyhow::Result<RgbaImage> {
     println!(
@@ -39,7 +39,7 @@ pub fn highlight(
     );
     println!("Prefetching elevation data for map bounding box...");
     let t = std::time::Instant::now();
-    elevation_service.prefetch_region(&bbox)?;
+    let dem_handle = elevation_service.fetch_region(bbox)?;
     println!("Prefetched elevation data for map bounding box: {:?}", bbox);
     println!(
         "{:.3}s ({:.3}s total)",
@@ -48,7 +48,7 @@ pub fn highlight(
     );
     println!("Calculating viewshed...");
     let t = std::time::Instant::now();
-    let los_service = LineOfSightService::new(Box::new(elevation_service));
+    let los_service = LineOfSightService::new(dem_handle);
     let viewshed_result =
         los_service.viewshed(lat, lon, bbox, resolution_deg, Some(viewer_height_m))?;
     println!(

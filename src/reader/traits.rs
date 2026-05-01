@@ -12,12 +12,9 @@ pub enum DemReaderError {
 }
 
 pub trait DemReader {
-    fn open(&self, loc: &Location) -> Result<Box<dyn DemHandle>, DemReaderError>;
+    fn open(&self, loc: &Location, bbox: Bbox) -> Result<Box<dyn DemHandle>, DemReaderError>;
 }
 
-pub trait DemHandle {
+pub trait DemHandle: Sync {
     fn elevation_at(&self, lat: f64, lon: f64) -> Result<Elevation, DemReaderError>;
-    fn prefetch_region(&mut self, _bbox: Bbox) -> Result<(), DemReaderError> {
-        Ok(())
-    }
 }

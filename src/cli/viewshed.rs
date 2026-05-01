@@ -31,11 +31,11 @@ pub fn handle_viewshed_command(
         "Displaying viewshed for ({}, {}) with width {} degrees in a grid of {} cols x {} rows.",
         lat, lon, width, cols, rows
     );
-    let mut elevation_service =
+    let elevation_service =
         build_elevation_service(ReaderType::Gdal, SourceType::Usgs, None, None)?;
     println!("Prefetching elevation data for bounding box: {:?}", bbox);
-    elevation_service.prefetch_region(&bbox)?;
-    let los_service = LineOfSightService::new(Box::new(elevation_service));
+    let elevation_provider = elevation_service.fetch_region(bbox)?;
+    let los_service = LineOfSightService::new(elevation_provider);
     let viewer_height_m = 3.0; // Giving the caller the benefit of the doubt.
     println!("Calculating viewshed...");
     let result =

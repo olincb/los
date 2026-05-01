@@ -9,7 +9,7 @@ use crate::{Bbox, Elevation};
 pub struct GeoTiffReader;
 
 impl DemReader for GeoTiffReader {
-    fn open(&self, loc: &Location) -> Result<Box<dyn DemHandle>, DemReaderError> {
+    fn open(&self, loc: &Location, bbox: Bbox) -> Result<Box<dyn DemHandle>, DemReaderError> {
         let filepath = match loc {
             Location::LocalPath(path) => path,
             Location::RemoteUrl(url) => {
@@ -48,14 +48,30 @@ impl DemReader for GeoTiffReader {
             x: max_lon,
             y: max_lat,
         } = bounds.max();
+        let actual_bbox = Bbox {
+            min_lon,
+            min_lat,
+            max_lon,
+            max_lat,
+        };
+
+        // Check that the requested bbox is within the bounds of the GeoTiff, and return an error
+        // if not.
+        if !actual_bbox.contains(bbox.min_lat, bbox.min_lon) {
+            return Err(DemReaderError::OutOfBounds(format!(
+                "Requested bbox minimum lat/lon ({}, {}) is outside of GeoTiff bounds (min lat/lon: {}, {})",
+                bbox.min_lat, bbox.min_lon, min_lat, min_lon
+            )));
+        }
+        if !actual_bbox.contains(bbox.max_lat, bbox.max_lon) {
+            return Err(DemReaderError::OutOfBounds(format!(
+                "Requested bbox maximum lat/lon ({}, {}) is outside of GeoTiff bounds (max lat/lon: {}, {})",
+                bbox.max_lat, bbox.max_lon, max_lat, max_lon
+            )));
+        }
         Ok(Box::new(GeoTiffDemHandle {
             reader,
-            bbox: Bbox {
-                min_lon,
-                min_lat,
-                max_lon,
-                max_lat,
-            },
+            bbox: actual_bbox,
         }))
     }
 }
