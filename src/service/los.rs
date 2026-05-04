@@ -193,7 +193,6 @@ impl LineOfSightService {
         })
     }
 
-    // TODO: parallelize with rayon join?
     fn has_los_to_floating_point(
         &self,
         lat1: f64,
