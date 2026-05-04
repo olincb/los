@@ -2,6 +2,7 @@ use crate::Bbox;
 use crate::reader::DemHandle;
 use rayon::prelude::*;
 use std::fmt;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 pub enum LineOfSightResult {
     Clear,
@@ -80,9 +81,12 @@ pub struct LineOfSightService {
     elevation_provider: Box<dyn DemHandle>,
     max_step_degrees: f64,
     tolerance_m: f64, // How much higher the terrain must be than the sightline
-                      // to be considered a blocker, in meters. This is to account for noise in
-                      // the elevation data and to avoid false positives where the terrain is
-                      // just barely above the sightline.
+    // to be considered a blocker, in meters. This is to account for noise in
+    // the elevation data and to avoid false positives where the terrain is
+    // just barely above the sightline.
+    parallel_recursion_cutoff_steps: u32, // Number of steps at which to stop parallel
+                                          // recursion and switch to sequential, to avoid
+                                          // overhead of parallelism for small line segments.
 }
 
 impl LineOfSightService {
@@ -92,6 +96,7 @@ impl LineOfSightService {
             elevation_provider: dem_handle,
             max_step_degrees: 1.0 / 3600.0 / 3.0, // 1/3 arcsecond in degrees
             tolerance_m: 2.0,                     // USGS 3DEP has ~1-2m vertical accuracy
+            parallel_recursion_cutoff_steps: 128,
         }
     }
 
@@ -116,7 +121,19 @@ impl LineOfSightService {
         let elev1 = self.elevation_provider.elevation_at(lat1, lon1)?;
         let elev2 = self.elevation_provider.elevation_at(lat2, lon2)?;
         let adjusted_elev1_m = elev1.m + viewer_height_m;
-        self.has_los_to_floating_point(lat1, lon1, adjusted_elev1_m, lat2, lon2, elev2.m)
+        let cancelled = AtomicBool::new(false);
+        match self.has_los_to_floating_point(
+            lat1,
+            lon1,
+            adjusted_elev1_m,
+            lat2,
+            lon2,
+            elev2.m,
+            &cancelled,
+        )? {
+            Some(result) => Ok(result),
+            None => Err(anyhow::anyhow!("Line of sight calculation was cancelled")),
+        }
     }
 
     /// Computes the viewshed grid for a given viewer location and bounding box.
@@ -193,7 +210,6 @@ impl LineOfSightService {
         })
     }
 
-    // TODO: parallelize with rayon join?
     fn has_los_to_floating_point(
         &self,
         lat1: f64,
@@ -202,10 +218,15 @@ impl LineOfSightService {
         lat2: f64,
         lon2: f64,
         elev2_m: f64,
-    ) -> Result<LineOfSightResult, anyhow::Error> {
-        if Self::degrees_between(lat1, lon1, lat2, lon2) <= self.max_step_degrees {
+        cancelled: &AtomicBool,
+    ) -> Result<Option<LineOfSightResult>, anyhow::Error> {
+        if cancelled.load(Ordering::Relaxed) {
+            return Ok(None);
+        }
+        let distance_degrees = Self::degrees_between(lat1, lon1, lat2, lon2);
+        if distance_degrees <= self.max_step_degrees {
             // Base case: points are close enough to vacuously have LOS
-            return Ok(LineOfSightResult::Clear);
+            return Ok(Some(LineOfSightResult::Clear));
         }
         let (mid_lat, mid_lon) = Self::midpoint(lat1, lon1, lat2, lon2);
         let mid_elev = self.elevation_provider.elevation_at(mid_lat, mid_lon)?;
@@ -214,32 +235,78 @@ impl LineOfSightService {
         let expected_mid_elev = (elev1_m + elev2_m) / 2.0;
         if mid_elev.m > expected_mid_elev + self.tolerance_m {
             // Midpoint is above the line, so no LOS
-            return Ok(LineOfSightResult::Blocked {
+            return Ok(Some(LineOfSightResult::Blocked {
                 lat: mid_lat,
                 lon: mid_lon,
                 terrain_m: mid_elev.m,
                 sightline_m: expected_mid_elev,
-            });
+            }));
         }
 
-        // Recurse on the two halves of the line, short-circuiting if possible.
-        match self.has_los_to_floating_point(
-            lat1,
-            lon1,
-            elev1_m,
-            mid_lat,
-            mid_lon,
-            expected_mid_elev,
-        )? {
-            LineOfSightResult::Clear => self.has_los_to_floating_point(
+        if distance_degrees > self.parallel_recursion_cutoff_steps as f64 * self.max_step_degrees {
+            // Parallelize the recursive checks for the two halves of the line, since the line is
+            // long enough to benefit from parallelism.
+            let (left, right) = rayon::join(
+                || {
+                    self.has_los_to_floating_point(
+                        lat1,
+                        lon1,
+                        elev1_m,
+                        mid_lat,
+                        mid_lon,
+                        expected_mid_elev,
+                        cancelled,
+                    )
+                },
+                || {
+                    self.has_los_to_floating_point(
+                        mid_lat,
+                        mid_lon,
+                        expected_mid_elev,
+                        lat2,
+                        lon2,
+                        elev2_m,
+                        cancelled,
+                    )
+                },
+            );
+            match (left?, right?) {
+                (Some(LineOfSightResult::Clear), Some(LineOfSightResult::Clear)) => {
+                    Ok(Some(LineOfSightResult::Clear))
+                }
+                (l_blocked @ Some(LineOfSightResult::Blocked { .. }), _) => {
+                    cancelled.store(true, Ordering::Relaxed);
+                    Ok(l_blocked)
+                }
+                (_, r_blocked @ Some(LineOfSightResult::Blocked { .. })) => {
+                    cancelled.store(true, Ordering::Relaxed);
+                    Ok(r_blocked)
+                }
+                _ => Ok(None), // One of the branches was cancelled
+            }
+        } else {
+            // Recurse on the two halves of the line, short-circuiting if possible.
+            match self.has_los_to_floating_point(
+                lat1,
+                lon1,
+                elev1_m,
                 mid_lat,
                 mid_lon,
                 expected_mid_elev,
-                lat2,
-                lon2,
-                elev2_m,
-            ),
-            blocked @ LineOfSightResult::Blocked { .. } => Ok(blocked),
+                cancelled,
+            )? {
+                Some(LineOfSightResult::Clear) => self.has_los_to_floating_point(
+                    mid_lat,
+                    mid_lon,
+                    expected_mid_elev,
+                    lat2,
+                    lon2,
+                    elev2_m,
+                    cancelled,
+                ),
+                blocked @ Some(LineOfSightResult::Blocked { .. }) => Ok(blocked),
+                None => Ok(None), // Cancelled
+            }
         }
     }
 
