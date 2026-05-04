@@ -5,7 +5,7 @@ use crate::ElevationService;
 use crate::service::{HighlighterService, LineOfSightService};
 use crate::source::Location;
 use crate::source::topo::{TopoMapDescriptor, TopoSource};
-use image::RgbaImage;
+use image::RgbImage;
 
 pub fn highlight(
     lat: f64,
@@ -14,7 +14,7 @@ pub fn highlight(
     resolution_deg: f64,
     elevation_service: ElevationService,
     map_source: &dyn TopoSource,
-) -> anyhow::Result<RgbaImage> {
+) -> anyhow::Result<RgbImage> {
     println!(
         "Highlighting visible area on topo map for ({}, {})",
         lat, lon

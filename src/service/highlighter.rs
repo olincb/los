@@ -4,7 +4,8 @@ use crate::source::Location;
 use crate::source::topo::TopoMapDescriptor;
 use gdal::Dataset;
 use gdal::spatial_ref::{CoordTransform, SpatialRef};
-use image::{Rgba, RgbaImage};
+use image::{Rgb, RgbImage};
+use rayon::prelude::*;
 
 pub struct HighlighterService {
     image_dpi: u32,
@@ -51,7 +52,7 @@ impl HighlighterService {
         &self,
         topo_map: &TopoMapDescriptor,
         viewshed: &ViewshedGrid,
-    ) -> anyhow::Result<RgbaImage> {
+    ) -> anyhow::Result<RgbImage> {
         // TODO: Ability to use different rasterization libraries in case of non-PDF map.
         //       May want fully different highlight implementations for different libraries.
 
@@ -81,10 +82,6 @@ impl HighlighterService {
 
         // Step 2: Get the RGB bands and hold them in memory.
         println!("Reading RGB bands from topo map into memory...");
-        let mut image = RgbaImage::new(
-            dataset.raster_size().0 as u32,
-            dataset.raster_size().1 as u32,
-        );
         let red_band = dataset.rasterband(1)?;
         let red_data =
             red_band.read_as::<u8>((0, 0), dataset.raster_size(), dataset.raster_size(), None)?;
@@ -98,24 +95,17 @@ impl HighlighterService {
         // Step 3: For each pixel, determine if it's visible in the viewshed. If not, darken the pixel.
         println!("Applying viewshed to topo map...");
         let darken_factor = 0.6; // How much to darken non-visible pixels (0.0 = completely black, 1.0 = no change)
-        let raster_size = dataset.raster_size();
+        let (w, h) = dataset.raster_size();
         let tl = geo_pixel_mapper.pixel_to_lat_lon(0, 0)?;
-        let tr = geo_pixel_mapper.pixel_to_lat_lon(raster_size.0 as isize - 1, 0)?;
-        let bl = geo_pixel_mapper.pixel_to_lat_lon(0, raster_size.1 as isize - 1)?;
-        let br = geo_pixel_mapper
-            .pixel_to_lat_lon(raster_size.0 as isize - 1, raster_size.1 as isize - 1)?;
-        for col in 0..raster_size.0 {
-            for row in 0..raster_size.1 {
-                let (lat, lon) = self.bilinearly_interpolate(
-                    row,
-                    col,
-                    tl,
-                    tr,
-                    bl,
-                    br,
-                    raster_size.0,
-                    raster_size.1,
-                );
+        let tr = geo_pixel_mapper.pixel_to_lat_lon(w as isize - 1, 0)?;
+        let bl = geo_pixel_mapper.pixel_to_lat_lon(0, h as isize - 1)?;
+        let br = geo_pixel_mapper.pixel_to_lat_lon(w as isize - 1, h as isize - 1)?;
+        let pixels: Vec<u8> = (0..w * h)
+            .into_par_iter()
+            .flat_map_iter(|i| {
+                let col = i % w;
+                let row = i / w;
+                let (lat, lon) = self.bilinearly_interpolate(row, col, tl, tr, bl, br, w, h);
                 let mut r = red_data[(row, col)];
                 let mut g = green_data[(row, col)];
                 let mut b = blue_data[(row, col)];
@@ -125,10 +115,12 @@ impl HighlighterService {
                     g = (g as f64 * darken_factor).round() as u8;
                     b = (b as f64 * darken_factor).round() as u8;
                 }
+                [r, g, b]
+            })
+            .collect();
+        let mut image = RgbImage::from_raw(w as u32, h as u32, pixels)
+            .ok_or_else(|| anyhow::anyhow!("Failed to create image from raster data"))?;
 
-                image.put_pixel(col as u32, row as u32, Rgba([r, g, b, 255]));
-            }
-        }
         // Step 4: Put origin dot on map
         println!("Marking origin point on map...");
         let (origin_x, origin_y) =
@@ -140,12 +132,8 @@ impl HighlighterService {
                 if dx * dx + dy * dy <= r * r {
                     let x = origin_x + dx;
                     let y = origin_y + dy;
-                    if x >= 0
-                        && x < dataset.raster_size().0 as isize
-                        && y >= 0
-                        && y < dataset.raster_size().1 as isize
-                    {
-                        image.put_pixel(x as u32, y as u32, Rgba([255, 0, 0, 255]));
+                    if x >= 0 && x < w as isize && y >= 0 && y < h as isize {
+                        image.put_pixel(x as u32, y as u32, Rgb([255, 0, 0]));
                     }
                 }
             }

@@ -1,10 +1,10 @@
-use image::RgbaImage;
+use image::RgbImage;
 use los::orchestrator::highlight;
 use los::reader::GdalReader;
 use los::service::ElevationService;
 use los::source;
 
-pub fn handle_highlight_endpoint_command(lat: f64, lon: f64) -> anyhow::Result<RgbaImage> {
+pub fn handle_highlight_endpoint_command(lat: f64, lon: f64) -> anyhow::Result<RgbImage> {
     let dem_source = Box::new(source::dem::UsgsSource);
     let reader = Box::new(GdalReader);
     let elevation_service = ElevationService::new(dem_source, reader, None);
