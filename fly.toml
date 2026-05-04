@@ -17,7 +17,9 @@ primary_region = 'ewr'
   processes = ['app']
 
 [env]
-RAYON_NUM_THREADS = "4"
+RAYON_NUM_THREADS = "8"
+GDAL_NUM_THREADS = "8"
+GDAL_CACHEMAX = "512"
 
 [[vm]]
-  size = "performance-4x"
+  size = "performance-8x"
