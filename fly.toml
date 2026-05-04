@@ -18,6 +18,8 @@ primary_region = 'ewr'
 
 [env]
 RAYON_NUM_THREADS = "4"
+GDAL_NUM_THREADS = "4"
+GDAL_CACHEMAX = "512"
 
 [[vm]]
   size = "performance-4x"
