@@ -64,6 +64,8 @@ impl HighlighterService {
             "Rasterizing topo map from location: {:?}...",
             topo_map.location
         );
+        println!("Opening topo map dataset with GDAL...");
+        let t = std::time::Instant::now();
         let dataset = match &topo_map.location {
             Location::LocalPath(path) => Dataset::open(path)?,
             Location::RemoteUrl(url) => Dataset::open(url)?,
@@ -75,6 +77,10 @@ impl HighlighterService {
         let dataset_to_wgs84 = CoordTransform::new(&dataset_srs, &wgs84)?;
         let geo_pixel_mapper = GeoPixelMapper::new(gt, dataset_to_wgs84, wgs84_to_dataset_srs);
         println!(
+            "Opened topo map dataset and geotransform in {:.3}s",
+            t.elapsed().as_secs_f32(),
+        );
+        println!(
             "Working on topo map with size {}x{}...",
             dataset.raster_size().0,
             dataset.raster_size().1
@@ -82,6 +88,7 @@ impl HighlighterService {
 
         // Step 2: Get the RGB bands and hold them in memory.
         println!("Reading RGB bands from topo map into memory...");
+        let t = std::time::Instant::now();
         let red_band = dataset.rasterband(1)?;
         let red_data =
             red_band.read_as::<u8>((0, 0), dataset.raster_size(), dataset.raster_size(), None)?;
@@ -91,9 +98,14 @@ impl HighlighterService {
         let blue_band = dataset.rasterband(3)?;
         let blue_data =
             blue_band.read_as::<u8>((0, 0), dataset.raster_size(), dataset.raster_size(), None)?;
+        println!(
+            "Read RGB bands into memory in {:.3}s",
+            t.elapsed().as_secs_f32(),
+        );
 
         // Step 3: For each pixel, determine if it's visible in the viewshed. If not, darken the pixel.
         println!("Applying viewshed to topo map...");
+        let t = std::time::Instant::now();
         let darken_factor = 0.6; // How much to darken non-visible pixels (0.0 = completely black, 1.0 = no change)
         let (w, h) = dataset.raster_size();
         let tl = geo_pixel_mapper.pixel_to_lat_lon(0, 0)?;
@@ -120,9 +132,14 @@ impl HighlighterService {
             .collect();
         let mut image = RgbImage::from_raw(w as u32, h as u32, pixels)
             .ok_or_else(|| anyhow::anyhow!("Failed to create image from raster data"))?;
+        println!(
+            "Applied viewshed to topo map in {:.3}s",
+            t.elapsed().as_secs_f32(),
+        );
 
         // Step 4: Put origin dot on map
         println!("Marking origin point on map...");
+        let t = std::time::Instant::now();
         let (origin_x, origin_y) =
             geo_pixel_mapper.lat_lon_to_pixel(viewshed.origin_lat, viewshed.origin_lon)?;
 
@@ -138,6 +155,10 @@ impl HighlighterService {
                 }
             }
         }
+        println!(
+            "Marked origin point on map in {:.3}s",
+            t.elapsed().as_secs_f32(),
+        );
 
         Ok(image)
     }

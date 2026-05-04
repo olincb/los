@@ -97,11 +97,14 @@ async fn highlight(Query(params): Query<HighlightParams>) -> Result<impl IntoRes
                 StatusCode::INTERNAL_SERVER_ERROR
             })?;
 
+    println!("Writing image to PNG format...");
+    let t = std::time::Instant::now();
     let mut buf = Cursor::new(Vec::new());
     image.write_to(&mut buf, ImageFormat::Png).map_err(|e| {
         eprintln!("Error encoding image to PNG: {e}");
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
+    println!("Encoded image to PNG format in {:.3}s", t.elapsed().as_secs_f32());
     Ok((
         StatusCode::OK,
         [(header::CONTENT_TYPE, "image/png")],
