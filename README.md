@@ -100,6 +100,15 @@ target/release/los elevation --lat 48.7766298 --lon -121.8144732
 Elevation at (48.7766298, -121.8144732): 3281.13 m (10764.87 ft)
 ```
 
+```bash
+cargo build --release --bin los-server
+STATIC_DIR=src/bin/server/static target/release/los-server
+```
+
+```text
+Listening on 127.0.0.1:3000
+```
+
 ## Testing
 
 Run all tests:
@@ -161,15 +170,17 @@ Reading a single point may still trigger a full internal block read (e.g., 128×
 
 Responsible for opening a DEM and providing elevation lookup.
 
-- `DemReader`: opens a dataset and returns a `DemHandle`
+- `DemReader`: opens a dataset and returns an in-memory `DemHandle`
 - `DemHandle`: provides `elevation_at(lat, lon)`
-
-Readers also provide support for pre-fetching regions to avoid repeated network
-requests for nearby points, which is important for line of sight calculations.
 
 #### GDAL Reader
 
 `GdalReader` supports remote and local datasets. It depends on a local installation of GDAL.
+
+This reader implements a cache to disk so that repeated queries for the same
+source and bounding box do not require repeated network requests. The cache writes a binary
+file serialized with `postcard`, keyed by bounding box coordinates and source identifier
+(e.g., URL or file path), to `~/.cache/los/gdal_dem_handles/`.
 
 #### geotiff Reader
 
@@ -180,7 +191,7 @@ The goal is to expand on this after implementing a DEM source that pulls TIF
 files that are small enough to be downloaded in their entirety, such as AWS Terrain Tiles.
 
 ### Elevation Service (`src/service/`)
-Combines a `DemSource` and `DemReader` to provide elevation lookup.
+Combines a `DemSource` and `DemReader` to fetch an in-memory `DemHandle` for a given bounding box.
 
 ### Map Retrieval
 
@@ -208,7 +219,8 @@ The Highlighter Service takes a descriptor of a topographic map, and the results
 of line of sight calculations, and produces a rendered map with the visible area
 highlighted. The current implementation relies heavily on `gdal` for reading
 GeoPDFs and pulling pixel data from the raster layers. It uses `image` for
-drawing the highlight overlay and exporting the final image.
+drawing the highlight overlay and exporting the final image. It uses `Rayon` for
+parallelism in the rendering stage.
 
 ### Orchestrator (`src/orchestrator.rs`)
 
@@ -250,17 +262,21 @@ the height of the observer above ground level.
 - **Highlight stage bilinear coordinate interpolation**: Corner-only coordinate
   transforms with bilinear interpolation for interior pixels reduced the highlight
   stage from \~33.3s to \~2.7s for a given test coordinate on a 4800×5800 map.
-- DEM is currently cached in memory for the duration of a single request.
+- DEM for the relevant bounding box is read entirely into memory for the duration
+  of the request, and is cached to disk for subsequent requests for the same source
+  and bounding box.
+- Uses `Rayon` for parallelism in the viewshed calculation and the map rendering stage.
 
 
-## API Server
+## API + Frontend Server
 
-A standalone HTTP server exposes the highlight functionality as a REST API.
+A standalone HTTP server exposes the highlight functionality as a REST API,
+and a thin, static UI.
 
 ### Running
 
 ```bash
-cargo run --bin los-server --release
+STATIC_DIR=src/bin/server/static cargo run --bin los-server --release
 ```
 
 The server listens on 127.0.0.1:3000 by default. Override with HOST and PORT
@@ -279,6 +295,14 @@ curl "http://localhost:3000/api/v1/highlight?lat=48.63&lon=-122.41" -o map.png
 #### GET `/api/v1/health`
 
 Returns ok. Use for liveness checks.
+
+#### GET `/`
+
+Serves a static HTML page with a form for submitting coordinates and displaying the resulting map.
+
+#### GET `/static/{filename}`
+
+Serves static assets for the frontend.
 
 ### Architecture
 
@@ -303,7 +327,8 @@ It accepts HTTP requests, parses query parameters, and returns the resulting ima
     - Automatically determine if DEM file has Web Mercator or geographic
     coordinates, and handle reprojection if necessary
   - Download png topo maps rather than GeoPDFs, and handle entirely with `image` crate
-- Caching DEM data between requests, rather than in-memory only for a single request
+- Write results to S3 and return URL for retrieval
+  - Serves as caching layer for repeated requests for the same request parameters
   
 
 ### Map features
@@ -323,13 +348,6 @@ It accepts HTTP requests, parses query parameters, and returns the resulting ima
 - Look into AWS Terrain Tiles
     - https://registry.opendata.aws/terrain-tiles/
     - Global coverage at zoom levels 0-15, sourced from ~10m USGS data
-
-### API Deployment
-- 2 stage dockerfile, build and runtime images
-- deploy with fly.io or similar
-- write results to S3 and return URL for retrieval
-  - serves as caching layer for repeated requests for the same coordinate
-- After API is stable, write thin client in JS that can call the API and display results in the browser
 
 ### WebAssembly module
 - Run the highlight algorithm in the browser, all clientside
