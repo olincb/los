@@ -104,7 +104,10 @@ async fn highlight(Query(params): Query<HighlightParams>) -> Result<impl IntoRes
         eprintln!("Error encoding image to PNG: {e}");
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
-    println!("Encoded image to PNG format in {:.3}s", t.elapsed().as_secs_f32());
+    println!(
+        "Encoded image to PNG format in {:.3}s",
+        t.elapsed().as_secs_f32()
+    );
     Ok((
         StatusCode::OK,
         [(header::CONTENT_TYPE, "image/png")],

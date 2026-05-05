@@ -1,3 +1,4 @@
+use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
 
 #[derive(thiserror::Error, Debug)]
@@ -10,8 +11,16 @@ pub enum SourceError {
     Data(String),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Hash)]
 pub enum Location {
     LocalPath(PathBuf),
     RemoteUrl(String),
+}
+
+impl Location {
+    pub fn cache_hash(&self) -> u64 {
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        self.hash(&mut hasher);
+        hasher.finish()
+    }
 }

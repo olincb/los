@@ -7,6 +7,26 @@ pub struct GdalReader;
 
 impl DemReader for GdalReader {
     fn open(&self, loc: &Location, bbox: Bbox) -> Result<Box<dyn DemHandle>, DemReaderError> {
+        // First check if we have a cached handle for this bbox on disk and load it if available.
+        match GdalDemHandle::deserialize_from_file(bbox, loc) {
+            Ok(Some(handle)) => {
+                // Cache hit - return the cached handle.
+                println!(
+                    "Cache hit: Loaded GdalDemHandle for bbox {} and location {:?} from disk cache.",
+                    bbox, loc
+                );
+                return Ok(Box::new(handle));
+            }
+            Ok(None) => {} // Cache miss - continue to open dataset and prefetch region.
+            Err(e) => {
+                // If there's an error during deserialization, log it and continue to open dataset and prefetch region.
+                eprintln!(
+                    "Failed to deserialize GdalDemHandle for bbox {} and location {:?} due to: {}. Proceeding to open dataset and prefetch region.",
+                    bbox, loc, e
+                );
+            }
+        }
+
         // GDAL can handle both local paths and remote URLs.
         let dataset = match loc {
             Location::LocalPath(path) => gdal::Dataset::open(path),
@@ -31,11 +51,25 @@ impl DemReader for GdalReader {
                 )));
             }
         };
-        Ok(Box::new(self.prefetch_region(
-            bbox,
-            &dataset,
-            geo_transform,
-        )?))
+        let handle = self.prefetch_region(bbox, &dataset, geo_transform)?;
+
+        // Serialize and cache handle to disk for subsequent runs.
+        match handle.serialize_to_file(loc) {
+            Ok(_) => {
+                println!(
+                    "Serialized GdalDemHandle for bbox {} and location {:?} to disk cache.",
+                    bbox, loc
+                );
+            }
+            Err(e) => {
+                eprintln!(
+                    "Failed to serialize GdalDemHandle for bbox {} and location {:?} to disk cache due to: {}.",
+                    bbox, loc, e
+                );
+            }
+        }
+
+        Ok(Box::new(handle))
     }
 }
 
@@ -87,8 +121,6 @@ impl GdalReader {
                 )));
             }
         };
-        // TODO: Use disk to cache prefetched regions by bbox, to avoid repeated fetching and
-        // reading of the same data across multiple runs of the program.
         Ok(GdalDemHandle {
             geo_transform,
             bbox,
@@ -99,12 +131,64 @@ impl GdalReader {
     }
 }
 
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct GdalDemHandle {
     geo_transform: [f64; 6],
     bbox: Bbox,
     width: usize,
     height: usize,
     data: Vec<f32>,
+}
+
+impl GdalDemHandle {
+    fn serialization_key(bbox: Bbox, loc: &Location) -> String {
+        let serialization_version = 1;
+        let source_hash = loc.cache_hash();
+        format!(
+            "gdal_dem_handle_v{}_src_{}_bbox_{}_{}_{}_{}.postcard",
+            serialization_version,
+            source_hash,
+            bbox.min_lat,
+            bbox.min_lon,
+            bbox.max_lat,
+            bbox.max_lon
+        )
+    }
+    fn cache_directory() -> anyhow::Result<std::path::PathBuf> {
+        let dir = crate::cache::cache_directory()
+            .as_ref()
+            .ok_or_else(|| {
+                anyhow::anyhow!("No cache directory available for serializing GdalDemHandle.")
+            })?
+            .join("gdal_dem_handles");
+        std::fs::create_dir_all(&dir)?;
+        Ok(dir)
+    }
+    fn cache_file_path(bbox: Bbox, loc: &Location) -> anyhow::Result<std::path::PathBuf> {
+        let key = GdalDemHandle::serialization_key(bbox, loc);
+        let dir = GdalDemHandle::cache_directory()?;
+        Ok(dir.join(key))
+    }
+
+    pub fn serialize_to_file(&self, loc: &Location) -> anyhow::Result<()> {
+        let key_path = GdalDemHandle::cache_file_path(self.bbox, loc)?;
+        let tmp_path = key_path.with_extension("tmp");
+        let bytes = postcard::to_allocvec(self)?;
+        std::fs::write(&tmp_path, bytes)?;
+        std::fs::rename(&tmp_path, key_path)?;
+        Ok(())
+    }
+
+    pub fn deserialize_from_file(bbox: Bbox, loc: &Location) -> anyhow::Result<Option<Self>> {
+        let key_path = GdalDemHandle::cache_file_path(bbox, loc)?;
+        // If the file doesn't exist, return Ok(None) to indicate a cache miss.
+        if !key_path.exists() {
+            return Ok(None);
+        }
+        let bytes = std::fs::read(key_path)?;
+        let handle = postcard::from_bytes(&bytes)?;
+        Ok(Some(handle))
+    }
 }
 
 pub struct GeoPixelMapper {

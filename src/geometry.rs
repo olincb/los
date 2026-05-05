@@ -1,4 +1,4 @@
-#[derive(Debug, Clone, Copy)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Copy)]
 pub struct Bbox {
     pub min_lat: f64,
     pub min_lon: f64,

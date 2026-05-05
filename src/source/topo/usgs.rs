@@ -3,7 +3,6 @@ use super::traits::{TopoMapDescriptor, TopoSource};
 use crate::Bbox;
 use crate::source::{Location, SourceError};
 use std::path::PathBuf;
-use std::sync::OnceLock;
 
 pub struct UsgsTopoMapSource {
     zip_path: PathBuf,
@@ -24,20 +23,10 @@ struct UsgsTopoMapMetadata {
     product_url: String,
 }
 
-/// Find the location of the cache directory. Should be `~/.cache/los`.
-fn cache_directory() -> &'static Option<PathBuf> {
-    static CACHE_DIR: OnceLock<Option<PathBuf>> = OnceLock::new();
-    CACHE_DIR.get_or_init(|| {
-        home::home_dir()
-            .filter(|path| !path.as_os_str().is_empty())
-            .map(|path| path.join(".cache").join("los"))
-    })
-}
-
 impl UsgsTopoMapSource {
     pub fn fetch() -> Result<Self, SourceError> {
         // TODO: optional flag to force refresh of metadata
-        let cache_dir = cache_directory().as_ref().ok_or_else(|| {
+        let cache_dir = crate::cache::cache_directory().as_ref().ok_or_else(|| {
             SourceError::Data("Unable to determine cache directory for USGS metadata".into())
         })?;
         std::fs::create_dir_all(cache_dir)?;
@@ -192,7 +181,7 @@ impl TopoSource for UsgsTopoMapSource {
         match &descriptor.location {
             Location::LocalPath(path) => Ok(path.clone()),
             Location::RemoteUrl(url) => {
-                let cache_dir = cache_directory().as_ref().ok_or_else(|| {
+                let cache_dir = crate::cache::cache_directory().as_ref().ok_or_else(|| {
                     SourceError::Data("Unable to determine cache directory for USGS maps".into())
                 })?;
                 std::fs::create_dir_all(cache_dir)?;
