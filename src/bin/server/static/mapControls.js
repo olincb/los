@@ -21,7 +21,7 @@ function loadMap() {
     img.src = `/api/v1/highlight?${params}`;
     surface.appendChild(img);
 
-    setMapMessage("Loading map. This may take up to a minute.");
+    setMapMessage("Loading map. This may take up to 30 seconds.");
     img.onload = () => {
         container.replaceChildren(surface);
         const panzoom = Panzoom(surface, {
