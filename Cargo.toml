@@ -9,7 +9,8 @@ axum = "0.8.9"
 clap = { version = "4.6", features = ["derive"] }
 csv = "1.4"
 # gdal = { version = "0.19", optional = true }
-gdal = "0.19"
+# Pinned to an upstream revision because no published release supports GDAL 3.13.
+gdal = { git = "https://github.com/georust/gdal", rev = "c0a6266b987a2c2d44aea9956c2cae1ed71445cf" }
 geo = "0.32.0"
 geo-types = "0.7"
 geotiff = "0.1.0"
