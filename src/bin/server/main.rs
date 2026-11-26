@@ -3,14 +3,16 @@ mod api;
 use api::highlight;
 use axum::{
     Json, Router,
-    extract::Query,
+    extract::{Query, Request},
     http::{StatusCode, header},
-    response::IntoResponse,
+    middleware::{self, Next},
+    response::{IntoResponse, Response},
     routing::get,
 };
 use image::ImageFormat;
 use serde::{Deserialize, Serialize};
 use std::io::Cursor;
+use tower::ServiceBuilder;
 use tower_http::services::{ServeDir, ServeFile};
 
 #[derive(Deserialize)]
@@ -36,7 +38,12 @@ async fn main() -> anyhow::Result<()> {
         .route_service("/", ServeFile::new(format!("{static_dir}/index.html")))
         .route_service("/coffee", get(im_a_teapot))
         .nest_service("/static", ServeDir::new(static_dir))
-        .fallback(page_not_found);
+        .fallback(page_not_found)
+        .layer(
+            ServiceBuilder::new()
+                .layer(middleware::from_fn(log_request))
+                .layer(middleware::from_fn(bump_timeout)),
+        );
 
     let host = std::env::var("HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
     let port = std::env::var("PORT").unwrap_or_else(|_| "3000".to_string());
@@ -47,6 +54,46 @@ async fn main() -> anyhow::Result<()> {
     axum::serve(listener, app).await?;
     Ok(())
 }
+
+// Middleware
+
+fn header_text(request: &Request, name: &str) -> String {
+    request
+        .headers()
+        .get(name)
+        .map(|v| v.to_str().unwrap_or("<invalid>"))
+        .unwrap_or("<none>")
+        .to_owned()
+}
+
+async fn log_request(request: Request, next: Next) -> Response {
+    let started = std::time::Instant::now();
+    let method = request.method().clone();
+    let uri = request.uri().clone();
+    let host = header_text(&request, header::HOST.as_str());
+    let user_agent = header_text(&request, header::USER_AGENT.as_str());
+    let ip = header_text(&request, "Fly-Client-IP");
+    let region = header_text(&request, "Fly-Region");
+    let referer = header_text(&request, header::REFERER.as_str());
+    let response = next.run(request).await;
+    println!(
+        "Handled request method:{method} host:{host:?} uri:{uri:?} status:{} duration:{:.3}s user-agent:{user_agent:?} ip:{ip:?} region:{region:?} referer:{referer:?}",
+        response.status().as_u16(),
+        started.elapsed().as_secs_f32()
+    );
+    response
+}
+
+async fn bump_timeout(request: Request, next: Next) -> Response {
+    // TODO: mark that there is a request ongoing, then reset last completed at time
+    //       then also a background task which shuts things down if there is no request ongoing for
+    //       a while
+    println!("Bumping timeout");
+    let response = next.run(request).await;
+    response
+}
+
+// Error handlers
 
 async fn api_not_found() -> impl IntoResponse {
     (
@@ -72,6 +119,8 @@ async fn im_a_teapot() -> impl IntoResponse {
         include_str!("static/418.html"),
     )
 }
+
+// API handlers
 
 async fn health() -> &'static str {
     println!("GET /api/v1/health");
